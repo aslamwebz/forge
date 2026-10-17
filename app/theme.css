@@ -1,0 +1,14 @@
+/* The Forge on its own: the tokens an app that carries it would give (warm dark, honey accent). */
+:root {
+  color-scheme: dark;
+  --f-bg: #1c1714;
+  --f-ink: #f3e9dc;
+  --f-muted: #bfae9a;
+  --f-line: #f3e9dc1a;
+  --f-accent: #e8a54b;
+  --f-danger: #e5534b;
+}
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--f-bg); color: var(--f-ink); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+.forge-app { height: 100vh; display: flex; flex-direction: column; }
+.forge-app > .fg-forge { flex: 1; min-height: 0; }

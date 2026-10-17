@@ -1,0 +1,40 @@
+{
+  "name": "@freya/forge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A workplace for coding agents: real terminals for Claude Code, Codex, OpenCode and others, side by side, with a lead that commands them, review, live previews and scripts. Runs on its own or inside Freya.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    "./main": "./src/main/index.ts",
+    "./ui": "./src/ui/index.ts"
+  },
+  "scripts": {
+    "build": "node app/build.mjs",
+    "start": "node app/build.mjs && electron dist-app/main.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "@opencode-ai/sdk": "^1.19.3",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/headless": "6.0.0",
+    "@xterm/xterm": "^6.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.3.1"
+  }
+}
