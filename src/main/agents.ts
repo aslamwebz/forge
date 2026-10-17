@@ -89,6 +89,10 @@ const SESSION_MARKER = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_JOB_DIR|CLAUDE_EFFORT|CLA
 export function launchEnv(): Record<string, string> {
   const env = { ...process.env, PATH: freshPath() } as Record<string, string>
   for (const name of Object.keys(env)) if (SESSION_MARKER.test(name)) delete env[name]
+  // A pane is a real colour terminal, whatever started the app (a tool's shell may set NO_COLOR).
+  delete env.NO_COLOR
+  if (env.FORCE_COLOR === '0') delete env.FORCE_COLOR
+  env.COLORTERM = 'truecolor'
   return env
 }
 
