@@ -103,6 +103,9 @@ export function ForgeWorkspace() {
   // A lead started or stopped an agent: the Harness shows what runs now.
   const refreshRef = useRef<(directory: string) => void>(() => undefined)
   useEffect(() => bridge()?.onForgeEvent?.(({ directory, event }) => { if (event.type === 'panes-changed') refreshRef.current(directory) }), [])
+  // The engine restarted (or stopped): its terminals are gone; the list and what ran are read again.
+  const engineRef = useRef<() => void>(() => undefined)
+  useEffect(() => bridge()?.onForgeEvent?.(({ event }) => { if (event.type === 'engine-restarted' || event.type === 'engine-stopped') engineRef.current() }), [])
 
   const label = (kind: string) => agents.find(agent => agent.id === kind)?.label ?? kind
   /** Show a workspace: its agents in the Harness, its shells and scripts in the panel, then what he clicked. */
@@ -126,6 +129,20 @@ export function ForgeWorkspace() {
     }).catch(fail)
   }, [fail])
 
+  engineRef.current = () => {
+    setPanes([])
+    setDock([])
+    void load().then((list) => {
+      const again = current ? list.find(item => item.id === current.id) : undefined
+      if (again && !creating) choose(again)
+    }).catch(() => undefined)
+    void loadAgents().catch(() => undefined)
+  }
+  /** Restart the Forge's engine (with the build on disk now); its terminals close and Restore brings them back. */
+  const restartEngine = async () => {
+    if (!window.confirm('Restart the Forge? Its terminals close; Restore brings them back.')) return
+    try { setError(null); await call({ op: 'restart-forge' }) } catch (reason) { fail(reason) }
+  }
   refreshRef.current = (directory) => {
     const workspace = workspaces.find(item => item.directory === directory)
     if (workspace && current?.directory === directory && !creating) choose(workspace)
@@ -314,6 +331,7 @@ export function ForgeWorkspace() {
                 {(['rows', 'columns', 'grid'] as const satisfies readonly SubLayout[]).map(item => { const name = `The others ${item === 'rows' ? 'stacked' : item === 'columns' ? 'side by side' : 'in a grid'}`; return <button key={item} type="button" aria-pressed={subLayout === item} aria-label={name} title={name} onClick={() => { setSubLayout(item) }}>{item === 'rows' ? '☰' : item === 'columns' ? '▥' : '▦'}</button> })}
               </span> : null}
             </div> : null}
+            <button type="button" className="fg-restart" aria-label="Restart the Forge" title="Restart the Forge (its terminals close; Restore brings them back)" onClick={() => { void restartEngine() }}>⟳</button>
             <LookMenu />
             <span className="fg-path" title={showing.directory}><b>{showing.name}</b> {showing.directory}</span>
           </header>

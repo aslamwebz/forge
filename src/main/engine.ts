@@ -1,5 +1,4 @@
-import { ipcMain, Notification, shell } from 'electron'
-import { setHost, type ForgeHost } from './host'
+import { port } from './host'
 import { basename } from 'node:path'
 import { FORGE_AGENTS, forgeAgents } from './agents'
 import { closePane, closeWorkspacePanes, forgetLastPanes, lastPanes, openPane, paneById, pasteInto, resizePane, runningPanes, writePane, type PaneStatus, type TerminalSink } from './forgeTerminal'
@@ -10,39 +9,30 @@ import { claudeSessionSaved, resumeArgs, sessionsOf } from './sessions'
 import { dropLead, initLead, leadArgs } from './lead'
 import { FORGE_TEMPLATES, createProject, defaultLocation, isChosenLocation, pickLocation } from './templates'
 
+export type ForgeResult = { ok: true; value: unknown } | { ok: false; error: string }
+export interface ForgeEngine {
+  /** One request from the Forge page. */
+  handle(input: unknown): Promise<ForgeResult>
+}
+
 /**
- * The Forge page's one door: the owner's workspaces, the coding CLIs he can start in them, and
- * their panes. Nothing is started here unless he asks; every request names one of his workspaces.
+ * The Forge's engine: the owner's workspaces, the coding CLIs he can start in them, and their panes.
+ * Nothing is started here unless he asks; every request names one of his workspaces. It speaks to
+ * the app only through its port, so it runs in the app's process or in one of its own.
  */
-export function mountForgeIpc(forgeHost: ForgeHost): void {
-  setHost(forgeHost)
-  const window = forgeHost.window
-  const push = (channel: string, value: unknown) => {
-    const target = window()
-    if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) target.webContents.send(channel, value)
-  }
+export function createEngine(): ForgeEngine {
+  const push = (channel: string, value: unknown) => { port().push(channel, value) }
   /** How many tools run in a workspace, told to the sidebar whenever it changes. */
   const announce = (directory: string) => { push('freya:forge:state', { directory, running: runningPanes(directory).length }) }
   const directoryOf = new Map<string, string>()
   const keyOf = new Map<string, string>()
-  /** He is told when an agent needs him or has finished, unless he is looking at the app already. */
+  /** He is told when an agent needs him or has finished (the app knows whether he is looking already). */
   const tell = (id: string, status: PaneStatus, before: PaneStatus) => {
     const pane = paneById(id)
-    const target = window()
-    if (!pane || !Notification.isSupported() || (target?.isFocused() ?? false)) return
+    if (!pane) return
     if (status !== 'blocked' && !(status === 'done' && before === 'working')) return
     const agent = FORGE_AGENTS.find(item => item.id === pane.kind)?.label ?? pane.kind
-    const toast = new Notification({ title: `${agent} ${status === 'blocked' ? 'needs you' : 'is done'}`, body: basename(pane.directory), silent: status !== 'blocked' })
-    toast.on('click', () => {
-      const shown = window()
-      if (!shown || shown.isDestroyed()) return
-      if (shown.isMinimized()) shown.restore()
-      shown.show()
-      shown.focus()
-      forgeHost.navigate?.()
-      push('freya:forge:event', { directory: pane.directory, event: { type: 'focus-pane', properties: { key: pane.key } } })
-    })
-    toast.show()
+    port().notify({ title: `${agent} ${status === 'blocked' ? 'needs you' : 'is done'}`, body: basename(pane.directory), silent: status !== 'blocked', directory: pane.directory, key: pane.key })
   }
   const sink: TerminalSink = {
     data: (id: string, data: string) => { push('freya:forge:term', { id, data }) },
@@ -105,8 +95,7 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
   })
   const size = (value: unknown, fallback: number) => typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 1000 ? value : fallback
 
-  ipcMain.handle('freya:forge', async (event, input: unknown) => {
-    if (event.sender !== window()?.webContents) return { ok: false, error: 'not this window' }
+  const handle = async (input: unknown): Promise<ForgeResult> => {
     const row = (input ?? {}) as Record<string, unknown>
     const text = (key: string, max = 20_000) => typeof row[key] === 'string' ? (row[key] as string).slice(0, max) : ''
     try {
@@ -116,7 +105,7 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
         case 'templates':
           return { ok: true, value: { templates: FORGE_TEMPLATES.map(({ id, name, description, command }) => ({ id, name, description, command })), location: defaultLocation() } }
         case 'pick-location':
-          return { ok: true, value: await pickLocation(window()) }
+          return { ok: true, value: await pickLocation() }
         case 'create-project':
           // Only where he chose (in the folder dialog) or the default: the page cannot name any folder.
           if (!isChosenLocation(text('location', 1_000))) return { ok: false, error: 'Choose the location with Change first.' }
@@ -124,20 +113,20 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
           return { ok: true, value: createProject({ location: text('location', 1_000), name: text('name', 80), template: text('template', 40) }) }
         case 'open-external':
           if (!isLocal(text('url', 2_000))) return { ok: false, error: 'Only a local address opens from here.' }
-          await shell.openExternal(text('url', 2_000))
+          await port().openExternal(text('url', 2_000))
           return { ok: true, value: null }
         case 'open-link': {
           // A link he clicked in a terminal: web addresses only.
           const url = text('url', 2_000)
           if (!/^https?:\/\//iu.test(url)) return { ok: false, error: 'Only web links open from a terminal.' }
-          await shell.openExternal(url)
+          await port().openExternal(url)
           return { ok: true, value: null }
         }
         case 'agents':
           return { ok: true, value: forgeAgents() }
         case 'open-folder':
           push('freya:forge:state', { directory: '', running: 0 })
-          return { ok: true, value: await pickWorkspace(window()) }
+          return { ok: true, value: await pickWorkspace() }
         case 'remove': {
           const workspace = forgeWorkspaces().find(item => item.id === text('id', 80))
           if (workspace) closeWorkspacePanes(workspace.directory)
@@ -259,5 +248,6 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
-  })
+  }
+  return { handle }
 }

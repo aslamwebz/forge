@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { dataDir } from './host'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
@@ -21,7 +21,7 @@ import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk'
 const START_MS = 20_000
 /** The builder's own working folder (its process id file lives here); projects are the owner's workspaces. */
 export function forgeRoot(): string {
-  const root = join(app.getPath('userData'), 'forge')
+  const root = join(dataDir(), 'forge')
   mkdirSync(root, { recursive: true })
   return root
 }

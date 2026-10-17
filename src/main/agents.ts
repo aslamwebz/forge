@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { dataDir } from './host'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -36,7 +36,7 @@ export interface ForgeAgent {
  * even the free models, which work without one.
  */
 export function opencodeEnv(): Record<string, string> {
-  const home = join(app.getPath('userData'), 'forge', 'opencode-data')
+  const home = join(dataDir(), 'forge', 'opencode-data')
   const folder = join(home, 'opencode')
   mkdirSync(folder, { recursive: true })
   const shared = join(process.env.XDG_DATA_HOME?.trim() || join(homedir(), '.local', 'share'), 'opencode', 'auth.json')
@@ -53,10 +53,10 @@ export function opencodeEnv(): Record<string, string> {
 /** Claude Code pointed at MiniMax's Anthropic-compatible endpoint, with a config folder of its own. */
 function claudeOnMiniMax(model: string): Pick<ForgeAgent, 'needs' | 'env' | 'configDir'> {
   return {
-    configDir: () => join(app.getPath('userData'), 'forge', `claude-minimax-${model.toLowerCase()}`),
+    configDir: () => join(dataDir(), 'forge', `claude-minimax-${model.toLowerCase()}`),
     needs: () => process.env.MINIMAX_API_KEY ? null : 'Needs a MiniMax key (Settings → Models).',
     env: () => {
-      const configDir = join(app.getPath('userData'), 'forge', `claude-minimax-${model.toLowerCase()}`)
+      const configDir = join(dataDir(), 'forge', `claude-minimax-${model.toLowerCase()}`)
       mkdirSync(configDir, { recursive: true })
       return {
         ANTHROPIC_BASE_URL: process.env.MINIMAX_ANTHROPIC_BASE_URL?.trim() || 'https://api.minimax.io/anthropic',

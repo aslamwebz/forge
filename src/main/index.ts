@@ -1,19 +1,10 @@
-import { mountForgeIpc } from './forgeIpc'
-import { closeTerminals } from './forgeTerminal'
-import { stopLeads } from './lead'
-import { stopForge as stopServer } from './opencodeHost'
-import { stopReviews } from './review'
-import type { ForgeHost } from './host'
-
-export type { ForgeHost, ForgeSecurity } from './host'
-
-/** Mount the Forge in the main process: its door for the page, its panes, leads and reviews. */
-export function mountForge(host: ForgeHost): void { mountForgeIpc(host) }
-
-/** Everything the Forge runs, stopped with the app. */
-export function shutdownForge(): void {
-  closeTerminals()
-  stopReviews()
-  stopLeads()
-  stopServer()
-}
+/**
+ * The Forge, for the main process of an Electron app. Two ways to carry it:
+ * - mountForge: the engine runs in the app's own process (simple; the standalone Forge uses it).
+ * - mountForgeProcess: the engine runs in a process of its own, restartable without the app
+ *   (the app bundles worker.ts and gives its path).
+ */
+export { mountForge, shutdownForge } from './inProcess'
+export { mountForgeProcess, type ForgeProcessHost } from './supervisor'
+export type { ForgeHost } from './electronPort'
+export type { ForgeSecurity } from './host'

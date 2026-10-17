@@ -1,4 +1,4 @@
-import { app, dialog, type BrowserWindow } from 'electron'
+import { dataDir, port } from './host'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { saveScript, type ScriptType } from './scripts'
@@ -37,10 +37,10 @@ export const FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
 
 /** Where new projects go unless he picks another place. */
 export function defaultLocation(): string {
-  return join(app.getPath('documents'), 'Forge Projects')
+  return join(port().documentsDir, 'Forge Projects')
 }
 
-const chosenFile = () => join(app.getPath('userData'), 'forge-locations.json')
+const chosenFile = () => join(dataDir(), 'forge-locations.json')
 function chosenLocations(): string[] {
   try { const list = JSON.parse(readFileSync(chosenFile(), 'utf8')) as unknown; return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : [] } catch { return [] }
 }
@@ -51,10 +51,8 @@ export function isChosenLocation(location: string): boolean {
 }
 
 /** He picks the folder new projects go in; null when he cancels. */
-export async function pickLocation(window: BrowserWindow | null): Promise<string | null> {
-  const options = { title: 'Where new projects go', properties: ['openDirectory' as const, 'createDirectory' as const] }
-  const chosen = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-  const picked = chosen.canceled ? null : chosen.filePaths[0] ?? null
+export async function pickLocation(): Promise<string | null> {
+  const picked = await port().pickFolder('Where new projects go', true)
   if (picked) writeFileSync(chosenFile(), JSON.stringify([...new Set([...chosenLocations(), picked])].slice(-20), null, 2))
   return picked
 }

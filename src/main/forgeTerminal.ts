@@ -1,7 +1,7 @@
 import { spawn as spawnPty, type IPty } from '@lydell/node-pty'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { Terminal as Screen } from '@xterm/headless'
-import { app } from 'electron'
+import { dataDir } from './host'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -315,7 +315,7 @@ export function closeTerminals(): void {
 /** An agent that was running in a workspace when the app last closed. */
 export interface LastPane { readonly key: string; readonly kind: PaneKind; readonly title?: string; readonly startedAt: number; readonly sessionId?: string }
 let quitting = false
-const lastFile = () => join(app.getPath('userData'), 'forge-last.json')
+const lastFile = () => join(dataDir(), 'forge-last.json')
 
 /** What runs now, per workspace (agents only: shells and scripts are his to start again). Kept as the app closes. */
 function remember(): void {
@@ -328,7 +328,7 @@ function remember(): void {
     ;(all[pane.directory.toLowerCase()] ??= []).push({ key: pane.key, kind: pane.kind, startedAt: pane.startedAt, ...(pane.title ? { title: pane.title } : {}), ...(pane.sessionId ? { sessionId: pane.sessionId } : {}) })
   }
   try {
-    mkdirSync(app.getPath('userData'), { recursive: true })
+    mkdirSync(dataDir(), { recursive: true })
     writeFileSync(lastFile(), JSON.stringify(all, null, 2))
   } catch { /* the next change tries again */ }
 }

@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { dataDir } from './host'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,7 +12,7 @@ import { join } from 'node:path'
 export type ScriptType = 'dev' | 'check' | 'other'
 export interface ForgeScript { readonly id: string; readonly name: string; readonly command: string; readonly type: ScriptType }
 
-const file = () => join(app.getPath('userData'), 'forge-scripts.json')
+const file = () => join(dataDir(), 'forge-scripts.json')
 
 function readAll(): Record<string, ForgeScript[]> {
   try {
@@ -22,7 +22,7 @@ function readAll(): Record<string, ForgeScript[]> {
 }
 
 function writeAll(all: Record<string, ForgeScript[]>): void {
-  mkdirSync(app.getPath('userData'), { recursive: true })
+  mkdirSync(dataDir(), { recursive: true })
   writeFileSync(file(), JSON.stringify(all, null, 2))
 }
 

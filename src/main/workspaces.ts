@@ -1,4 +1,4 @@
-import { app, dialog, type BrowserWindow } from 'electron'
+import { dataDir, port } from './host'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
@@ -10,7 +10,7 @@ import { basename, join, resolve } from 'node:path'
 
 export interface ForgeWorkspace { readonly id: string; readonly name: string; readonly directory: string; readonly addedAt: string }
 
-const file = () => join(app.getPath('userData'), 'forge-workspaces.json')
+const file = () => join(dataDir(), 'forge-workspaces.json')
 
 export function forgeWorkspaces(): readonly ForgeWorkspace[] {
   try {
@@ -21,7 +21,7 @@ export function forgeWorkspaces(): readonly ForgeWorkspace[] {
 }
 
 function save(list: readonly ForgeWorkspace[]): void {
-  mkdirSync(app.getPath('userData'), { recursive: true })
+  mkdirSync(dataDir(), { recursive: true })
   writeFileSync(file(), JSON.stringify(list, null, 2))
 }
 
@@ -43,10 +43,8 @@ export function removeWorkspace(id: string): void {
 }
 
 /** The owner picks a folder; null when he cancels. */
-export async function pickWorkspace(window: BrowserWindow | null): Promise<ForgeWorkspace | null> {
-  const options = { title: 'Open a project folder', properties: ['openDirectory' as const] }
-  const chosen = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-  const directory = chosen.canceled ? undefined : chosen.filePaths[0]
+export async function pickWorkspace(): Promise<ForgeWorkspace | null> {
+  const directory = await port().pickFolder('Open a project folder', false)
   return directory ? addWorkspace(directory) : null
 }
 

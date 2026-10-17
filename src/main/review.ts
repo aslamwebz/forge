@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { dataDir } from './host'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -58,7 +58,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git log:*)
 const LIMIT_MS = 15 * 60_000
 const KEEP = 20_000
 
-const file = () => join(app.getPath('userData'), 'forge-review.json')
+const file = () => join(dataDir(), 'forge-review.json')
 const keyOf = (directory: string) => directory.toLowerCase()
 function readAll(): Record<string, Saved> {
   try {
@@ -67,7 +67,7 @@ function readAll(): Record<string, Saved> {
   } catch { return {} }
 }
 function writeAll(all: Record<string, Saved>): void {
-  mkdirSync(app.getPath('userData'), { recursive: true })
+  mkdirSync(dataDir(), { recursive: true })
   writeFileSync(file(), JSON.stringify(all, null, 2))
 }
 const defaults = (): Saved => ({ intent: '', range: 'uncommitted', runner: 'claude-minimax', auditors: AUDITORS.filter(item => !item.optional).map(item => item.id), scenarios: [], falsePositives: [] })

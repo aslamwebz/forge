@@ -1,9 +1,8 @@
-import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, join } from 'node:path'
-import { host } from './host'
+import { dataDir, port as forgePort } from './host'
 import { FORGE_AGENTS, forgeAgents } from './agents'
 import { closePane, paneLastOutput, paneStatus, paneText, pressKeys, runningPanes, typeInto } from './forgeTerminal'
 
@@ -41,11 +40,11 @@ const BRIEF = (directory: string) => [
 /** The arguments that make a Claude Code pane a lead: its tools, and a briefing about them. */
 export async function leadArgs(directory: string, key: string, label: string): Promise<string[]> {
   // A lead commands other agents only through a security core; without one there is no lead.
-  const security = host().security
+  const security = forgePort().security
   if (!security) throw new Error('A lead needs a security core to decide its calls; this app has none, so the lead is off.')
   await listen()
   const token = randomBytes(24).toString('hex')
-  const identity = security.issueIdentity(`lead:${directory.toLowerCase()}:${key}`, 'lead', `${label} lead · ${basename(directory)}`).id
+  const identity = (await security.issueIdentity(`lead:${directory.toLowerCase()}:${key}`, 'lead', `${label} lead · ${basename(directory)}`)).id
   // One lead per pane: a lead made again replaces the one before, whose token stops working.
   dropLead(directory, key)
   const folder = leadFolder()
@@ -58,7 +57,7 @@ export async function leadArgs(directory: string, key: string, label: string): P
   return ['--mcp-config', config, '--append-system-prompt-file', brief, '--allowedTools', 'mcp__forge']
 }
 
-const leadFolder = () => join(app.getPath('userData'), 'forge', 'leads')
+const leadFolder = () => join(dataDir(), 'forge', 'leads')
 
 /** A lead's pane closed or ended: its token stops working and its files are deleted. */
 export function dropLead(directory: string, key: string): void {
@@ -99,7 +98,7 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>, sign
   }
   /** The core decides first; the ticket is closed with how the call went. */
   const through = async <T>(targetName: string, action: string, work: () => Promise<T> | T): Promise<T> => {
-    const security = host().security
+    const security = forgePort().security
     if (!security) throw new Error('There is no security core, so the lead cannot act.')
     const ticket = await security.pass({ caller: lead.identity, channel: 'forge', target: targetName, action })
     try {
@@ -248,7 +247,7 @@ async function reply(lead: Lead, message: { id?: unknown; method?: unknown; para
         return ok({ content: [{ type: 'text', text: await run(lead, name, args, signal) }] })
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
-        const stopped = host().security?.isStop(error) === true ? `Stopped by the security core: ${reason}` : reason
+        const stopped = forgePort().security?.isStop(error) === true ? `Stopped by the security core: ${reason}` : reason
         return ok({ content: [{ type: 'text', text: stopped }], isError: true })
       }
     }

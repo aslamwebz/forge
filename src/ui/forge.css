@@ -257,3 +257,9 @@
 .fg-sublayouts { display: inline-flex; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--f-line); }
 .fg-forge .fg-sublayouts button { padding: 2px 7px; border-color: transparent; color: var(--f-muted); font-size: 12px; }
 .fg-forge .fg-sublayouts button[aria-pressed='true'] { color: var(--f-accent); }
+
+/* Restart the Forge's engine. */
+.fg-forge .fg-restart { margin-left: auto; padding: 2px 9px; border-color: transparent; color: var(--f-muted); }
+.fg-forge .fg-restart:hover { color: var(--f-accent); }
+.fg-layouts + .fg-restart { margin-left: 8px; }
+.fg-restart + .fg-look { margin-left: 4px; }
