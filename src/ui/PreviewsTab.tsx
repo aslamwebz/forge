@@ -66,7 +66,7 @@ export function PreviewsTab({ directory, items, chosen, onChoose, onRun, onError
       <button type="button" title="Open in your browser" onClick={() => { void call({ op: 'open-external', url: shown }).catch(onError) }}>Open ↗</button>
     </div>
     <div className="fg-preview-stage">
-      <iframe key={`${shown}#${String(reload)}`} src={shown} title={`Preview of ${active.title}`} style={px ? { width: `${String(px)}px` } : undefined} />
+      <iframe key={`${shown}#${String(reload)}`} src={shown} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" title={`Preview of ${active.title}`} style={px ? { width: `${String(px)}px` } : undefined} />
     </div>
   </div>
 }

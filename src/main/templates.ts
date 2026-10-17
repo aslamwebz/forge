@@ -1,5 +1,5 @@
 import { app, dialog, type BrowserWindow } from 'electron'
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { saveScript, type ScriptType } from './scripts'
 import { addWorkspace, type ForgeWorkspace } from './workspaces'
@@ -40,11 +40,23 @@ export function defaultLocation(): string {
   return join(app.getPath('documents'), 'Forge Projects')
 }
 
+const chosenFile = () => join(app.getPath('userData'), 'forge-locations.json')
+function chosenLocations(): string[] {
+  try { const list = JSON.parse(readFileSync(chosenFile(), 'utf8')) as unknown; return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : [] } catch { return [] }
+}
+/** A location he chose in the folder dialog (now or before), or the default. */
+export function isChosenLocation(location: string): boolean {
+  const wanted = resolve(location.trim() || defaultLocation()).toLowerCase()
+  return wanted === resolve(defaultLocation()).toLowerCase() || chosenLocations().some(item => resolve(item).toLowerCase() === wanted)
+}
+
 /** He picks the folder new projects go in; null when he cancels. */
 export async function pickLocation(window: BrowserWindow | null): Promise<string | null> {
   const options = { title: 'Where new projects go', properties: ['openDirectory' as const, 'createDirectory' as const] }
   const chosen = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-  return chosen.canceled ? null : chosen.filePaths[0] ?? null
+  const picked = chosen.canceled ? null : chosen.filePaths[0] ?? null
+  if (picked) writeFileSync(chosenFile(), JSON.stringify([...new Set([...chosenLocations(), picked])].slice(-20), null, 2))
+  return picked
 }
 
 /** Make the project's folder, list it as a workspace and save its scripts; the starter is for the terminal. */

@@ -7,8 +7,8 @@ import { AUDITORS, markFinding, onReviewChange, reviewOf, saveReviewSettings, st
 import { forgeWorkspaces, isForgeWorkspace, pickWorkspace, removeWorkspace } from './workspaces'
 import { deleteScript, findScript, saveScript, scriptsOf } from './scripts'
 import { claudeSessionSaved, resumeArgs, sessionsOf } from './sessions'
-import { initLead, leadArgs } from './lead'
-import { FORGE_TEMPLATES, createProject, defaultLocation, pickLocation } from './templates'
+import { dropLead, initLead, leadArgs } from './lead'
+import { FORGE_TEMPLATES, createProject, defaultLocation, isChosenLocation, pickLocation } from './templates'
 
 /**
  * The Forge page's one door: the owner's workspaces, the coding CLIs he can start in them, and
@@ -24,6 +24,7 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
   /** How many tools run in a workspace, told to the sidebar whenever it changes. */
   const announce = (directory: string) => { push('freya:forge:state', { directory, running: runningPanes(directory).length }) }
   const directoryOf = new Map<string, string>()
+  const keyOf = new Map<string, string>()
   /** He is told when an agent needs him or has finished, unless he is looking at the app already. */
   const tell = (id: string, status: PaneStatus, before: PaneStatus) => {
     const pane = paneById(id)
@@ -48,7 +49,11 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
     exit: (id: string, code: number) => {
       push('freya:forge:term', { id, exit: code })
       const directory = directoryOf.get(id)
+      const key = keyOf.get(id)
       directoryOf.delete(id)
+      keyOf.delete(id)
+      // A lead that ended takes its token with it.
+      if (directory && key) dropLead(directory, key)
       if (directory) announce(directory)
     },
     address: (id: string) => {
@@ -88,6 +93,7 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
       const key = `${kind}-${String(n)}`
       const opened = await openPane(directory, key, kind, 120, 36, sink, { startedBy, more })
       directoryOf.set(opened.id, directory)
+      keyOf.set(opened.id, key)
       announce(directory)
       push('freya:forge:event', { directory, event: { type: 'panes-changed', properties: {} } })
       return key
@@ -112,6 +118,8 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
         case 'pick-location':
           return { ok: true, value: await pickLocation(window()) }
         case 'create-project':
+          // Only where he chose (in the folder dialog) or the default: the page cannot name any folder.
+          if (!isChosenLocation(text('location', 1_000))) return { ok: false, error: 'Choose the location with Change first.' }
           push('freya:forge:state', { directory: '', running: 0 })
           return { ok: true, value: createProject({ location: text('location', 1_000), name: text('name', 80), template: text('template', 40) }) }
         case 'open-external':
@@ -199,11 +207,13 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
           const agent = FORGE_AGENTS.find(item => item.id === kind)
           const lead = row.lead === true
           if (lead && agent?.command !== 'claude') return { ok: false, error: 'For now only Claude Code (or a Claude profile) can lead.' }
-          const more = lead && agent ? await leadArgs(directory, key, agent.label) : []
+          // A running pane is shown again, not made a lead again (that would issue a token nobody uses).
+          const more = lead && agent && !runningPanes(directory).some(pane => pane.key === key) ? await leadArgs(directory, key, agent.label) : []
           const opened = await openPane(directory, key, kind, size(row.cols, 100), size(row.rows, 30), sink, {
             resume: extra, more, lead, ...(text('title', 200) ? { title: text('title', 200) } : {}), ...(resume && resume !== 'last' ? { resumedId: resume } : {}),
           })
           directoryOf.set(opened.id, directory)
+      keyOf.set(opened.id, key)
           announce(directory)
           return { ok: true, value: opened }
         }
@@ -240,6 +250,7 @@ export function mountForgeIpc(forgeHost: ForgeHost): void {
         }
         case 'pane-close':
           closePane(directory, text('key', 80))
+          dropLead(directory, text('key', 80))
           announce(directory)
           return { ok: true, value: null }
         default:

@@ -50,11 +50,11 @@ interface Pane {
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/gu
 const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:\/[^\s'"<>\])]*)?/u
 /** What the coding CLIs show while they wait for his answer: a permission question, a yes/no. */
-const ASKING = /do you want to (proceed|make|create|run|allow|continue)|would you like to (run|make|proceed|apply)|allow (once|always|this|command)|permission (required|needed)|approve (this|the|command)|\(y\/n\)|\[y\/n\]|yes, and don't ask|press enter to (continue|confirm)|enter to (confirm|select)|trust (this|the files in this) folder/iu
+const ASKING = /do you want to (proceed|make|create|run|allow|continue)|would you like to (run|make|proceed|apply)|allow (once|always|this|command)|permission (required|needed)|approve (this|the|command)|\(y\/n\)|\[y\/n\]|yes, and don't ask|press enter to (continue|confirm)|enter to (confirm|select)|trust (this|the files in this) folder|run this command\?|requesting permission|allow this (action|command)/iu
 /** What they show while they work. */
 const WORKING = /esc to interrupt|esc interrupt|ctrl\+c to (interrupt|cancel)|\bworking \(\d/iu
 /** A menu waiting for his pick: the highlighted entry of a numbered list ("› 3. Cancel", "❯ 1. Yes"). */
-const CHOOSING = /^\s*[›❯]\s*\d+\.\s+\S/mu
+const CHOOSING = /^\s*[›❯>]\s*\d+\.\s+\S/mu
 const QUIET_MS = 2_500
 /** CLIs whose screen shows an interrupt hint for exactly as long as they work. */
 const SAYS_WORKING = new Set(['claude', 'codex', 'opencode'])
@@ -123,7 +123,9 @@ function judge(pane: Pane, sink: TerminalSink): void {
   const now = Date.now()
   // Claude Code, Codex and OpenCode say so while they work; for the others, output he did not cause is the sign.
   const command = FORGE_AGENTS.find(agent => agent.id === pane.kind)?.command ?? ''
-  const busy = WORKING.test(text) || (!SAYS_WORKING.has(command) && pane.lastInput > 0 && now - pane.lastOutput < QUIET_MS && pane.lastOutput - pane.lastInput > 600)
+  // A CLI that says so is read by its line; when a narrow pane cuts that line off, output still
+  // streaming well after his last keystroke (more than a redraw) is the sign.
+  const busy = WORKING.test(text) || (pane.lastInput > 0 && now - pane.lastOutput < QUIET_MS && pane.lastOutput - pane.lastInput > (SAYS_WORKING.has(command) ? 2_000 : 600))
   const next: PaneStatus = ASKING.test(text) || CHOOSING.test(text) ? 'blocked'
     : busy ? 'working'
       : pane.status === 'working' || pane.status === 'done' ? 'done'
@@ -240,11 +242,15 @@ export function paneStatus(directory: string, key: string): PaneStatus | null {
 }
 
 /** Type a message into a pane as a paste, then Enter a moment later if asked. */
+/** Text as typed words only: no control characters, so a message cannot end its paste early or press keys. */
+// eslint-disable-next-line no-control-regex -- removing control characters is the point
+const plain = (text: string) => text.replace(/[\x00-\x08\x0b-\x1f\x7f]/gu, '')
+
 export function typeInto(directory: string, key: string, text: string, submit: boolean): boolean {
   const pane = find(directory, key)
   if (!pane) return false
   pane.lastInput = Date.now()
-  pane.pty.write(`\x1b[200~${text}\x1b[201~`)
+  pane.pty.write(`\x1b[200~${plain(text)}\x1b[201~`)
   if (submit) setTimeout(() => { if (panes.has(pane.id)) { pane.lastInput = Date.now(); pane.pty.write('\r') } }, 250)
   return true
 }
@@ -266,7 +272,7 @@ export function pasteInto(directory: string, key: string, text: string): boolean
   const pane = [...panes.values()].find(item => item.directory === directory && item.key === key)
   if (!pane) return false
   pane.lastInput = Date.now()
-  pane.pty.write(`\x1b[200~${text}\x1b[201~`)
+  pane.pty.write(`\x1b[200~${plain(text)}\x1b[201~`)
   return true
 }
 

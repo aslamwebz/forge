@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, join } from 'node:path'
 import { host } from './host'
@@ -16,7 +16,7 @@ import { closePane, paneLastOutput, paneStatus, paneText, pressKeys, runningPane
  * Windows itself: the panes are the Forge's own.
  */
 
-interface Lead { readonly directory: string; readonly key: string; readonly identity: string }
+interface Lead { readonly directory: string; readonly key: string; readonly identity: string; readonly files: readonly string[] }
 interface Context {
   /** Start an agent in a workspace for a lead; resolves with its pane key. */
   open(directory: string, kind: string, startedBy: string, more: readonly string[]): Promise<string>
@@ -46,14 +46,27 @@ export async function leadArgs(directory: string, key: string, label: string): P
   await listen()
   const token = randomBytes(24).toString('hex')
   const identity = security.issueIdentity(`lead:${directory.toLowerCase()}:${key}`, 'lead', `${label} lead · ${basename(directory)}`).id
-  leads.set(token, { directory, key, identity })
-  const folder = join(app.getPath('userData'), 'forge', 'leads')
+  // One lead per pane: a lead made again replaces the one before, whose token stops working.
+  dropLead(directory, key)
+  const folder = leadFolder()
   mkdirSync(folder, { recursive: true })
   const config = join(folder, `${token.slice(0, 12)}.json`)
   writeFileSync(config, JSON.stringify({ mcpServers: { forge: { type: 'http', url: `http://127.0.0.1:${String(port)}/mcp`, headers: { Authorization: `Bearer ${token}` } } } }))
   const brief = join(folder, `${token.slice(0, 12)}.md`)
   writeFileSync(brief, BRIEF(directory))
+  leads.set(token, { directory, key, identity, files: [config, brief] })
   return ['--mcp-config', config, '--append-system-prompt-file', brief, '--allowedTools', 'mcp__forge']
+}
+
+const leadFolder = () => join(app.getPath('userData'), 'forge', 'leads')
+
+/** A lead's pane closed or ended: its token stops working and its files are deleted. */
+export function dropLead(directory: string, key: string): void {
+  for (const [token, lead] of [...leads]) {
+    if (lead.directory !== directory || lead.key !== key) continue
+    leads.delete(token)
+    for (const file of lead.files) rmSync(file, { force: true })
+  }
 }
 
 // ---- The tools ---------------------------------------------------------------------------------
@@ -63,9 +76,9 @@ const TOOLS = [
   { name: 'forge_available', description: 'The coding CLIs that can be started here.', inputSchema: { type: 'object', properties: {} } },
   { name: 'forge_start', description: 'Start a coding agent in this workspace, optionally on a chosen model and with a first task once it is ready. Returns its pane name.', inputSchema: { type: 'object', properties: { agent: { type: 'string', description: 'An id from forge_available, e.g. "opencode", "agy" or "claude-minimax".' }, model: { type: 'string', description: 'The model, in the CLI’s own naming: OpenCode "provider/model" (e.g. "opencode/kimi-k2.5-free"), Antigravity e.g. "gemini-3.8-flash-medium", Codex or Claude a model name. Leave out for its default.' }, task: { type: 'string', description: 'What it should do first.' } }, required: ['agent'] } },
   { name: 'forge_send', description: 'Send a message to an agent (typed into it and sent). If the agent is waiting for an answer, sending is an answer and may need the owner’s approval.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, message: { type: 'string' }, submit: { type: 'boolean', description: 'Press Enter after it (default true).' } }, required: ['pane', 'message'] } },
-  { name: 'forge_keys', description: 'Press keys in an agent: enter, escape, tab, up, down, left, right, backspace, ctrl+c, or single characters such as a menu number. Answering a waiting agent may need the owner’s approval.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, keys: { type: 'array', items: { type: 'string' } } }, required: ['pane', 'keys'] } },
+  { name: 'forge_keys', description: 'Press keys in an agent: enter, escape, tab, up, down, left, right, backspace, ctrl+c, or single characters such as a menu number. Keys answer agents, so this may need the owner’s approval.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, keys: { type: 'array', items: { type: 'string' } } }, required: ['pane', 'keys'] } },
   { name: 'forge_read', description: 'Read the last lines of an agent’s screen.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, lines: { type: 'number', description: 'How many lines (default 60, at most 400).' } }, required: ['pane'] } },
-  { name: 'forge_wait', description: 'Wait until an agent is done, idle, or blocked (or until the time is up). Returns its status.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, seconds: { type: 'number', description: 'How long to wait at most (default 120, at most 600).' } }, required: ['pane'] } },
+  { name: 'forge_wait', description: 'Wait until an agent is done, idle, or blocked, or until the time is up (at most 100 seconds a call: call it again to wait longer). Returns its status.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, seconds: { type: 'number', description: 'How long to wait at most (default 90, at most 100).' } }, required: ['pane'] } },
   { name: 'forge_stop', description: 'Stop an agent you started.', inputSchema: { type: 'object', properties: { pane: { type: 'string' } }, required: ['pane'] } },
 ] as const
 
@@ -77,7 +90,7 @@ function others(lead: Lead) {
   return runningPanes(lead.directory).filter(pane => pane.key !== lead.key && pane.kind !== 'shell' && pane.kind !== 'script')
 }
 
-async function run(lead: Lead, name: string, args: Record<string, unknown>): Promise<string> {
+async function run(lead: Lead, name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const pane = typeof args.pane === 'string' ? args.pane : ''
   const target = (key: string) => {
     const found = others(lead).find(item => item.key === key)
@@ -114,7 +127,8 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
       const task = typeof args.task === 'string' ? args.task.slice(0, 20_000) : ''
       // The model, as each CLI's own flag; only a plain model name can reach a command line.
       const model = typeof args.model === 'string' ? args.model.trim() : ''
-      if (model && !/^[\w./:@-]{1,100}$/u.test(model)) throw new Error('That is not a model name.')
+      // It starts with a letter or digit, so it can never be read as a flag.
+      if (model && !/^\w[\w./:@-]{0,99}$/u.test(model)) throw new Error('That is not a model name.')
       const command = FORGE_AGENTS.find(item => item.id === kind)?.command
       const more = !model ? [] : command === 'codex' ? ['-m', model] : ['--model', model]
       return through(model ? `${agent.label} · ${model}` : agent.label, 'start', async () => {
@@ -123,14 +137,20 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
         if (!task) return `Started ${key}.`
         // Ready when it has drawn its screen and gone quiet; a question first is for the owner.
         const deadline = Date.now() + 45_000
-        while (Date.now() < deadline) {
+        while (Date.now() < deadline && !signal.aborted) {
           await sleep(700)
           const status = paneStatus(lead.directory, key)
           if (status === null) return `${key} ended before it was ready.`
           if (status === 'blocked') return `Started ${key}, but it is asking something before it can work:\n${paneText(lead.directory, key, 14)?.text ?? ''}\nThe task was not sent.`
+          if (signal.aborted) return `Started ${key}; the lead left before the task was sent.`
           const last = paneLastOutput(lead.directory, key) ?? 0
           if (last > 0 && Date.now() - last > 2_500) {
-            typeInto(lead.directory, key, task, true)
+            // Typing the task is its own call: what changed while it started (a seal, a revoked card) decides it.
+            try {
+              await through(key, 'send', () => { typeInto(lead.directory, key, task, true) })
+            } catch (error) {
+              return `Started ${key}, but the task was not sent: ${error instanceof Error ? error.message : String(error)}`
+            }
             return `Started ${key} and gave it the task.`
           }
         }
@@ -142,7 +162,9 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
       const message = typeof args.message === 'string' ? args.message.slice(0, 20_000) : ''
       if (!message) throw new Error('There is no message to send.')
       // Typing into an agent that waits for an answer is answering it.
-      return through(found.key, found.status === 'blocked' ? 'answer' : 'send', () => {
+      const answering = found.status === 'blocked'
+      return through(found.key, answering ? 'answer' : 'send', () => {
+        if (!answering && paneStatus(lead.directory, found.key) === 'blocked') throw new Error(`${found.key} started asking something meanwhile; read it, and send again as an answer.`)
         typeInto(lead.directory, found.key, message, args.submit !== false)
         return `Sent to ${found.key}.`
       })
@@ -150,7 +172,7 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
     case 'forge_keys': {
       const found = target(pane)
       const keys = Array.isArray(args.keys) ? args.keys.filter((item): item is string => typeof item === 'string').slice(0, 40) : []
-      return through(found.key, found.status === 'blocked' ? 'answer' : 'keys', () => {
+      return through(found.key, 'answer', () => {
         if (!pressKeys(lead.directory, found.key, keys)) throw new Error('None of those keys can be pressed.')
         return `Pressed ${keys.join(' ')} in ${found.key}.`
       })
@@ -165,12 +187,13 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
     }
     case 'forge_wait': {
       const found = target(pane)
-      const seconds = Math.min(600, Math.max(1, typeof args.seconds === 'number' ? args.seconds : 120))
+      // Below the lead's own tool time limit, so a wait always comes back.
+      const seconds = Math.min(100, Math.max(1, typeof args.seconds === 'number' ? args.seconds : 90))
       return through(found.key, 'wait', async () => {
         const deadline = Date.now() + seconds * 1_000
         const started = Date.now()
         let seenWorking = false
-        while (Date.now() < deadline) {
+        while (Date.now() < deadline && !signal.aborted) {
           const status = paneStatus(lead.directory, found.key)
           if (status === null) return `${found.key} has ended.`
           if (status === 'working') seenWorking = true
@@ -198,12 +221,18 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>): Pro
 // ---- The MCP endpoint (Streamable HTTP, plain JSON answers) ------------------------------------
 
 async function body(request: IncomingMessage): Promise<string> {
-  let text = ''
-  for await (const chunk of request) { text += String(chunk); if (text.length > 2_000_000) throw new Error('too large') }
-  return text
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+    size += bytes.length
+    if (size > 2_000_000) throw new Error('too large')
+    chunks.push(bytes)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
-async function reply(lead: Lead, message: { id?: unknown; method?: unknown; params?: Record<string, unknown> }): Promise<unknown> {
+async function reply(lead: Lead, message: { id?: unknown; method?: unknown; params?: Record<string, unknown> }, signal: AbortSignal): Promise<unknown> {
   const id = message.id
   if (id === undefined) return null
   const ok = (result: unknown) => ({ jsonrpc: '2.0', id, result })
@@ -216,7 +245,7 @@ async function reply(lead: Lead, message: { id?: unknown; method?: unknown; para
       const name = typeof message.params?.name === 'string' ? message.params.name : ''
       const args = (message.params?.arguments ?? {}) as Record<string, unknown>
       try {
-        return ok({ content: [{ type: 'text', text: await run(lead, name, args) }] })
+        return ok({ content: [{ type: 'text', text: await run(lead, name, args, signal) }] })
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
         const stopped = host().security?.isStop(error) === true ? `Stopped by the security core: ${reason}` : reason
@@ -229,6 +258,8 @@ async function reply(lead: Lead, message: { id?: unknown; method?: unknown; para
 }
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  // Only this machine's own address: a page elsewhere renamed to point here (DNS rebinding) is refused.
+  if (request.headers.host !== `127.0.0.1:${String(port)}`) { response.writeHead(421).end(); return }
   const token = /^Bearer ([0-9a-f]{48})$/u.exec(request.headers.authorization ?? '')?.[1]
   const lead = token ? leads.get(token) : undefined
   if (!lead || request.url !== '/mcp') { response.writeHead(lead ? 404 : 401).end(); return }
@@ -237,13 +268,18 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   let parsed: unknown
   try { parsed = JSON.parse(await body(request)) } catch { response.writeHead(400).end(); return }
   const messages = Array.isArray(parsed) ? parsed : [parsed]
-  const answers = (await Promise.all(messages.map(item => reply(lead, item as Parameters<typeof reply>[1])))).filter(item => item !== null)
+  // A lead that goes away stops its waits and loops.
+  const leaving = new AbortController()
+  request.on('close', () => { if (!response.writableEnded) leaving.abort() })
+  const answers = (await Promise.all(messages.map(item => reply(lead, item as Parameters<typeof reply>[1], leaving.signal)))).filter(item => item !== null)
   if (answers.length === 0) { response.writeHead(202).end(); return }
   response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(Array.isArray(parsed) ? answers : answers[0]))
 }
 
 function listen(): Promise<void> {
   if (server) return Promise.resolve()
+  // Tokens from an earlier run are dead: their files go.
+  rmSync(leadFolder(), { recursive: true, force: true })
   return new Promise((resolve, reject) => {
     const created = createServer((request, response) => { void handle(request, response).catch(() => { if (!response.headersSent) response.writeHead(500).end() }) })
     created.on('error', reject)
@@ -259,5 +295,6 @@ function listen(): Promise<void> {
 export function stopLeads(): void {
   server?.close()
   server = null
+  for (const lead of leads.values()) for (const file of lead.files) rmSync(file, { force: true })
   leads.clear()
 }
