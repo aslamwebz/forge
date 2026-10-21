@@ -7,6 +7,7 @@ import { forgeWorkspaces, isForgeWorkspace, pickWorkspace, removeWorkspace } fro
 import { deleteScript, findScript, saveScript, scriptsOf } from './scripts'
 import { claudeSessionSaved, resumeArgs, sessionsOf } from './sessions'
 import { dropLead, initLead, leadArgs } from './lead'
+import { removeWorktree, worktreeFor, worktreesOf } from './worktrees'
 import { FORGE_TEMPLATES, createProject, defaultLocation, isChosenLocation, pickLocation } from './templates'
 
 export type ForgeResult = { ok: true; value: unknown } | { ok: false; error: string }
@@ -76,12 +77,13 @@ export function createEngine(): ForgeEngine {
   onReviewChange(announce)
   // A lead starts agents itself: they open here, and the page is told so it shows them.
   initLead({
-    open: async (directory, kind, startedBy, more) => {
+    open: async (directory, kind, startedBy, more, ownBranch) => {
       const used = new Set(runningPanes(directory).map(pane => pane.key))
       let n = 1
       while (used.has(`${kind}-${String(n)}`)) n += 1
       const key = `${kind}-${String(n)}`
-      const opened = await openPane(directory, key, kind, 120, 36, sink, { startedBy, more })
+      const tree = ownBranch ? worktreeFor(directory, key) : null
+      const opened = await openPane(directory, key, kind, 120, 36, sink, { startedBy, more, ...(tree ? { cwd: tree.path, branch: tree.branch } : {}) })
       directoryOf.set(opened.id, directory)
       keyOf.set(opened.id, key)
       announce(directory)
@@ -155,7 +157,7 @@ export function createEngine(): ForgeEngine {
             const found = pane.sessionId ?? (command === 'agy' ? 'last'
               : [...known].reverse().find(session => session.tool === pane.kind && session.updated >= pane.startedAt - 5_000 && !used.has(session.id))?.id)
             if (found) used.add(found)
-            return { kind: pane.kind, title: pane.title ?? null, resume: found ?? null }
+            return { kind: pane.kind, title: pane.title ?? null, resume: found ?? null, worktree: pane.branch?.replace(/^forge\//u, '') ?? null }
           }) }
         }
         case 'last-forget':
@@ -197,9 +199,13 @@ export function createEngine(): ForgeEngine {
           const lead = row.lead === true
           if (lead && agent?.command !== 'claude') return { ok: false, error: 'For now only Claude Code (or a Claude profile) can lead.' }
           // A running pane is shown again, not made a lead again (that would issue a token nobody uses).
-          const more = lead && agent && !runningPanes(directory).some(pane => pane.key === key) ? await leadArgs(directory, key, agent.label) : []
+          const fresh = !runningPanes(directory).some(pane => pane.key === key)
+          const more = lead && agent && fresh ? await leadArgs(directory, key, agent.label) : []
+          // Its own branch: a worktree named when it was first started, made or found again.
+          const own = text('worktree', 80)
+          const tree = own && fresh ? worktreeFor(directory, own) : null
           const opened = await openPane(directory, key, kind, size(row.cols, 100), size(row.rows, 30), sink, {
-            resume: extra, more, lead, ...(text('title', 200) ? { title: text('title', 200) } : {}), ...(resume && resume !== 'last' ? { resumedId: resume } : {}),
+            resume: extra, more, lead, ...(tree ? { cwd: tree.path, branch: tree.branch } : {}), ...(text('title', 200) ? { title: text('title', 200) } : {}), ...(resume && resume !== 'last' ? { resumedId: resume } : {}),
           })
           directoryOf.set(opened.id, directory)
       keyOf.set(opened.id, key)
@@ -235,6 +241,16 @@ export function createEngine(): ForgeEngine {
           ].filter(Boolean).join('\n')
           if (!pasteInto(directory, text('key', 80), message)) return { ok: false, error: 'That builder is not running any more.' }
           markFinding(directory, finding.id, 'sent')
+          return { ok: true, value: null }
+        }
+        case 'worktrees': {
+          const busy = new Set(runningPanes(directory).flatMap(pane => pane.branch ? [pane.branch] : []))
+          return { ok: true, value: worktreesOf(directory).map(item => ({ ...item, running: busy.has(item.branch) })) }
+        }
+        case 'worktree-remove': {
+          const name = text('name', 80)
+          if (runningPanes(directory).some(pane => pane.branch === `forge/${name}`)) return { ok: false, error: 'An agent still works there: close its pane first.' }
+          removeWorktree(directory, name)
           return { ok: true, value: null }
         }
         case 'pane-close':

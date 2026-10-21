@@ -18,7 +18,7 @@ import { closePane, paneLastOutput, paneStatus, paneText, pressKeys, runningPane
 interface Lead { readonly directory: string; readonly key: string; readonly identity: string; readonly files: readonly string[] }
 interface Context {
   /** Start an agent in a workspace for a lead; resolves with its pane key. */
-  open(directory: string, kind: string, startedBy: string, more: readonly string[]): Promise<string>
+  open(directory: string, kind: string, startedBy: string, more: readonly string[], ownBranch: boolean): Promise<string>
   /** Tell the page what runs in a workspace changed. */
   changed(directory: string): void
 }
@@ -73,7 +73,7 @@ export function dropLead(directory: string, key: string): void {
 const TOOLS = [
   { name: 'forge_agents', description: 'The other agents running in this workspace: pane name, which CLI, and what each is doing (working, done, idle, or blocked: waiting for an answer).', inputSchema: { type: 'object', properties: {} } },
   { name: 'forge_available', description: 'The coding CLIs that can be started here.', inputSchema: { type: 'object', properties: {} } },
-  { name: 'forge_start', description: 'Start a coding agent in this workspace, optionally on a chosen model and with a first task once it is ready. Returns its pane name.', inputSchema: { type: 'object', properties: { agent: { type: 'string', description: 'An id from forge_available, e.g. "opencode", "agy" or "claude-minimax".' }, model: { type: 'string', description: 'The model, in the CLI’s own naming: OpenCode "provider/model" (e.g. "opencode/kimi-k2.5-free"), Antigravity e.g. "gemini-3.8-flash-medium", Codex or Claude a model name. Leave out for its default.' }, task: { type: 'string', description: 'What it should do first.' } }, required: ['agent'] } },
+  { name: 'forge_start', description: 'Start a coding agent in this workspace, optionally on a chosen model and with a first task once it is ready. Returns its pane name.', inputSchema: { type: 'object', properties: { agent: { type: 'string', description: 'An id from forge_available, e.g. "opencode", "agy" or "claude-minimax".' }, model: { type: 'string', description: 'The model, in the CLI’s own naming: OpenCode "provider/model" (e.g. "opencode/kimi-k2.5-free"), Antigravity e.g. "gemini-3.8-flash-medium", Codex or Claude a model name. Leave out for its default.' }, task: { type: 'string', description: 'What it should do first.' }, own_branch: { type: 'boolean', description: 'Work in a git worktree of its own on the branch forge/<pane>, so it never edits the files you or the others are editing. Its commits stay on that branch for the owner to merge.' } }, required: ['agent'] } },
   { name: 'forge_send', description: 'Send a message to an agent (typed into it and sent). If the agent is waiting for an answer, sending is an answer and may need the owner’s approval.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, message: { type: 'string' }, submit: { type: 'boolean', description: 'Press Enter after it (default true).' } }, required: ['pane', 'message'] } },
   { name: 'forge_keys', description: 'Press keys in an agent: enter, escape, tab, up, down, left, right, backspace, ctrl+c, or single characters such as a menu number. Keys answer agents, so this may need the owner’s approval.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, keys: { type: 'array', items: { type: 'string' } } }, required: ['pane', 'keys'] } },
   { name: 'forge_read', description: 'Read the last lines of an agent’s screen.', inputSchema: { type: 'object', properties: { pane: { type: 'string' }, lines: { type: 'number', description: 'How many lines (default 60, at most 400).' } }, required: ['pane'] } },
@@ -132,8 +132,8 @@ async function run(lead: Lead, name: string, args: Record<string, unknown>, sign
       const more = !model ? [] : command === 'codex' ? ['-m', model] : ['--model', model]
       return through(model ? `${agent.label} · ${model}` : agent.label, 'start', async () => {
         if (!context) throw new Error('The Forge is not ready.')
-        const key = await context.open(lead.directory, kind, lead.key, more)
-        if (!task) return `Started ${key}.`
+        const key = await context.open(lead.directory, kind, lead.key, more, args.own_branch === true)
+        if (!task) return `Started ${key}${args.own_branch === true ? ` on its own branch forge/${key}` : ''}.`
         // Ready when it has drawn its screen and gone quiet; a question first is for the owner.
         const deadline = Date.now() + 45_000
         while (Date.now() < deadline && !signal.aborted) {

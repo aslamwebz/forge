@@ -37,6 +37,8 @@ interface Pane {
   readonly startedBy?: string
   /** Whether it is its workspace's lead (it has the Forge's tools). */
   readonly lead?: boolean
+  /** The agent's own branch, when it works in a worktree of its own. */
+  readonly branch?: string
   /** The last bit of output, for addresses split across chunks. */
   tail: string
   /** The local address a dev server in it said it serves. */
@@ -150,22 +152,25 @@ export interface OpenOptions {
   readonly title?: string
   readonly startedBy?: string
   readonly lead?: boolean
+  /** Where it runs, when not the workspace itself (its own worktree), and that worktree's branch. */
+  readonly cwd?: string
+  readonly branch?: string
 }
 
 export async function openPane(directory: string, key: string, kind: PaneKind, cols: number, rows: number, sink: TerminalSink, options: OpenOptions = {}): Promise<{ readonly id: string; readonly replay: string }> {
-  const { resume = [], more = [], title, resumedId, startedBy, lead } = options
+  const { resume = [], more = [], title, resumedId, startedBy, lead, cwd, branch } = options
   const running = [...panes.values()].find(item => item.directory === directory && item.key === key)
   if (running) {
     resize(running, cols, rows)
     return { id: running.id, replay: running.serializer.serialize({ scrollback: 3_000 }) }
   }
   const run = command(kind, directory, key, resume, more)
-  const pty = spawnPty(run.file, [...run.args], { name: 'xterm-256color', cols, rows, cwd: directory, env: run.env })
+  const pty = spawnPty(run.file, [...run.args], { name: 'xterm-256color', cols, rows, cwd: cwd ?? directory, env: run.env })
   const screen = new Screen({ cols, rows, scrollback: 5_000, allowProposedApi: true })
   const serializer = new SerializeAddon()
   screen.loadAddon(serializer)
   const sessionId = run.sessionId ?? resumedId
-  const pane: Pane = { id: randomUUID(), directory, key, kind, pty, screen, serializer, tail: '', status: 'idle', lastOutput: 0, lastInput: 0, startedAt: Date.now(), ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}), ...(startedBy ? { startedBy } : {}), ...(lead ? { lead } : {}) }
+  const pane: Pane = { id: randomUUID(), directory, key, kind, pty, screen, serializer, tail: '', status: 'idle', lastOutput: 0, lastInput: 0, startedAt: Date.now(), ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}), ...(startedBy ? { startedBy } : {}), ...(lead ? { lead } : {}), ...(branch ? { branch } : {}) }
   panes.set(pane.id, pane)
   remember()
   let judging: NodeJS.Timeout | undefined
@@ -195,10 +200,11 @@ export async function openPane(directory: string, key: string, kind: PaneKind, c
 }
 
 /** The panes running for a workspace, so the page can show the same layout when it comes back. */
-export function runningPanes(directory: string): readonly { readonly key: string; readonly kind: PaneKind; readonly url?: string; readonly status?: PaneStatus; readonly sessionId?: string; readonly lead?: boolean; readonly startedBy?: string; readonly title?: string }[] {
+export function runningPanes(directory: string): readonly { readonly key: string; readonly kind: PaneKind; readonly url?: string; readonly status?: PaneStatus; readonly sessionId?: string; readonly lead?: boolean; readonly startedBy?: string; readonly title?: string; readonly branch?: string }[] {
   return [...panes.values()].filter(item => item.directory === directory).map(item => ({
     key: item.key, kind: item.kind, ...(item.url ? { url: item.url } : {}), ...(item.kind !== 'shell' && item.kind !== 'script' ? { status: item.status } : {}),
     ...(item.sessionId ? { sessionId: item.sessionId } : {}), ...(item.lead ? { lead: true } : {}), ...(item.startedBy ? { startedBy: item.startedBy } : {}), ...(item.title ? { title: item.title } : {}),
+    ...(item.branch ? { branch: item.branch } : {}),
   }))
 }
 
@@ -313,7 +319,7 @@ export function closeTerminals(): void {
 }
 
 /** An agent that was running in a workspace when the app last closed. */
-export interface LastPane { readonly key: string; readonly kind: PaneKind; readonly title?: string; readonly startedAt: number; readonly sessionId?: string }
+export interface LastPane { readonly key: string; readonly kind: PaneKind; readonly title?: string; readonly startedAt: number; readonly sessionId?: string; readonly branch?: string }
 let quitting = false
 const lastFile = () => join(dataDir(), 'forge-last.json')
 
@@ -325,7 +331,7 @@ function remember(): void {
   const all: Record<string, LastPane[]> = {}
   for (const pane of panes.values()) {
     if (pane.kind === 'shell' || pane.kind === 'script') continue
-    ;(all[pane.directory.toLowerCase()] ??= []).push({ key: pane.key, kind: pane.kind, startedAt: pane.startedAt, ...(pane.title ? { title: pane.title } : {}), ...(pane.sessionId ? { sessionId: pane.sessionId } : {}) })
+    ;(all[pane.directory.toLowerCase()] ??= []).push({ key: pane.key, kind: pane.kind, startedAt: pane.startedAt, ...(pane.title ? { title: pane.title } : {}), ...(pane.sessionId ? { sessionId: pane.sessionId } : {}), ...(pane.branch ? { branch: pane.branch } : {}) })
   }
   try {
     mkdirSync(dataDir(), { recursive: true })
