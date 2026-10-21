@@ -421,8 +421,8 @@ export function ForgeWorkspace() {
             <span className="fg-agent-name">{agent.installed ? agent.label : `Install ${agent.label}`}</span>
           </button>
         })}
-        {worktrees.length > 0 ? <div className="fg-trees" aria-label="Own branches">
-          {worktrees.map(tree => <div key={tree.key} className="fg-tree" title={`${tree.branch}: ${String(tree.ahead)} commit${tree.ahead === 1 ? '' : 's'} ahead, ${String(tree.changed)} uncommitted`}>
+        {worktrees.length > 0 ? <div className="fg-wts" aria-label="Own branches">
+          {worktrees.map(tree => <div key={tree.key} className="fg-wt" title={`${tree.branch}: ${String(tree.ahead)} commit${tree.ahead === 1 ? '' : 's'} ahead, ${String(tree.changed)} uncommitted`}>
             <span className="fg-mark" aria-hidden="true">⑂</span>
             <span className="fg-agent-name">{tree.branch}<small>{tree.ahead > 0 ? ` ↑${String(tree.ahead)}` : ''}{tree.changed > 0 ? ` ●${String(tree.changed)}` : ''}</small></span>
             {tree.running ? null : <button type="button" className="fg-pane-close" aria-label={`Remove the worktree of ${tree.branch}`} title="Remove the worktree (the branch stays)" onClick={() => { void removeTree(tree) }}>×</button>}
