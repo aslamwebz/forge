@@ -1,4 +1,4 @@
-import { createEngine, type ForgeEngine } from './engine'
+import { createEngine, type ForgeEngine, type ForgeResult } from './engine'
 import { setPort, type ForgeNotice, type ForgeSecurity } from './host'
 import { shutdownEngine } from './shutdown'
 
@@ -14,6 +14,10 @@ export interface EngineLink {
   receive(message: unknown): void
   /** The app went away: what it was asked for is not coming. */
   lost(): void
+  /** Start the engine for a caller that is not the app (the command line); the app's security flag stays as it was. */
+  init(dataDir: string, documentsDir: string): void
+  /** A request from such a caller, answered to it alone. */
+  handle(request: unknown): Promise<ForgeResult>
 }
 
 export function engineLink(post: (message: unknown) => void, exit: () => void): EngineLink {
@@ -35,28 +39,30 @@ export function engineLink(post: (message: unknown) => void, exit: () => void): 
     },
     isStop: error => (error as { stopped?: unknown } | null)?.stopped === true,
   }
+  const start = (dataDir: string, documentsDir: string) => {
+    if (engine) return
+    setPort({
+      dataDir, documentsDir,
+      push: (channel, value) => { post({ t: 'push', channel, value }) },
+      pickFolder: (title, create) => ask<string | null>('pickFolder', [title, create]),
+      openExternal: url => ask<undefined>('openExternal', [url]).then(() => undefined),
+      notify: (notice: ForgeNotice) => { post({ t: 'notify', notice }) },
+      get security() { return secured ? security : undefined },
+    })
+    engine = createEngine()
+  }
+  const handle = (request: unknown): Promise<ForgeResult> => engine ? engine.handle(request) : Promise.resolve({ ok: false, error: 'The Forge engine is not ready.' })
   return {
     receive(raw) {
       const message = raw as { t?: string; id?: number; [key: string]: unknown }
       if (message.t === 'init') {
         // An app that connects again finds the same engine, its terminals still running.
         secured = message.security === true
-        if (!engine) {
-          setPort({
-            dataDir: String(message.dataDir), documentsDir: String(message.documentsDir),
-            push: (channel, value) => { post({ t: 'push', channel, value }) },
-            pickFolder: (title, create) => ask<string | null>('pickFolder', [title, create]),
-            openExternal: url => ask<undefined>('openExternal', [url]).then(() => undefined),
-            notify: (notice: ForgeNotice) => { post({ t: 'notify', notice }) },
-            get security() { return secured ? security : undefined },
-          })
-          engine = createEngine()
-        }
+        start(String(message.dataDir), String(message.documentsDir))
         post({ t: 'ready' })
       } else if (message.t === 'req' && typeof message.id === 'number') {
         const id = message.id
-        void (engine ? engine.handle(message.request) : Promise.resolve({ ok: false as const, error: 'The Forge engine is not ready.' }))
-          .then((result) => { post({ t: 'res', id, result }) })
+        void handle(message.request).then((result) => { post({ t: 'res', id, result }) })
       } else if (message.t === 'ret' && typeof message.id === 'number') {
         const waiting = asked.get(message.id)
         asked.delete(message.id)
@@ -69,6 +75,8 @@ export function engineLink(post: (message: unknown) => void, exit: () => void): 
         setTimeout(exit, 100)
       }
     },
+    init: start,
+    handle,
     lost() {
       for (const waiting of asked.values()) waiting.reject(new Error('The Forge app is not open.'))
       asked.clear()

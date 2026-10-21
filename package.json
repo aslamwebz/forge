@@ -5,6 +5,9 @@
   "description": "A workplace for coding agents: real terminals for Claude Code, Codex, OpenCode and others, side by side, with a lead that commands them, review, live previews and scripts. Runs on its own or inside Freya.",
   "license": "UNLICENSED",
   "type": "module",
+  "bin": {
+    "forge": "dist-app/forge.cjs"
+  },
   "exports": {
     "./main": "./src/main/index.ts",
     "./ui": "./src/ui/index.ts"

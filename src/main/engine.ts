@@ -1,9 +1,9 @@
 import { port } from './host'
 import { basename } from 'node:path'
 import { FORGE_AGENTS, forgeAgents } from './agents'
-import { closePane, closeWorkspacePanes, forgetLastPanes, lastPanes, openPane, paneById, pasteInto, resizePane, runningPanes, writePane, type PaneStatus, type TerminalSink } from './forgeTerminal'
+import { closePane, closeWorkspacePanes, forgetLastPanes, paneText, typeInto, lastPanes, openPane, paneById, pasteInto, resizePane, runningPanes, writePane, type PaneStatus, type TerminalSink } from './forgeTerminal'
 import { AUDITORS, markFinding, onReviewChange, reviewOf, saveReviewSettings, startReview, stopReview, type Finding } from './review'
-import { forgeWorkspaces, isForgeWorkspace, pickWorkspace, removeWorkspace } from './workspaces'
+import { addWorkspace, forgeWorkspaces, isForgeWorkspace, pickWorkspace, removeWorkspace } from './workspaces'
 import { deleteScript, findScript, saveScript, scriptsOf } from './scripts'
 import { claudeSessionSaved, resumeArgs, sessionsOf } from './sessions'
 import { dropLead, initLead, leadArgs } from './lead'
@@ -126,6 +126,12 @@ export function createEngine(): ForgeEngine {
         }
         case 'agents':
           return { ok: true, value: forgeAgents() }
+        // A folder named by the command line (the page picks its folders in a dialog).
+        case 'add-workspace': {
+          const workspace = addWorkspace(text('path', 1_000))
+          push('freya:forge:state', { directory: workspace.directory, running: runningPanes(workspace.directory).length })
+          return { ok: true, value: workspace }
+        }
         case 'open-folder':
           push('freya:forge:state', { directory: '', running: 0 })
           return { ok: true, value: await pickWorkspace() }
@@ -210,8 +216,17 @@ export function createEngine(): ForgeEngine {
           directoryOf.set(opened.id, directory)
       keyOf.set(opened.id, key)
           announce(directory)
+          // Started from outside the page (the command line): the page shows it too.
+          if (row.announce === true) push('freya:forge:event', { directory, event: { type: 'panes-changed', properties: {} } })
           return { ok: true, value: opened }
         }
+        // A pane by its key: its screen's last lines and status, or a message typed into it.
+        case 'pane-read': {
+          const read = paneText(directory, text('key', 80), Math.min(400, Math.max(1, Number(row.lines) || 60)))
+          return read ? { ok: true, value: read } : { ok: false, error: 'No pane runs by that name here.' }
+        }
+        case 'pane-send':
+          return typeInto(directory, text('key', 80), text('text', 20_000), row.submit !== false) ? { ok: true, value: null } : { ok: false, error: 'No pane runs by that name here.' }
         case 'review':
           return { ok: true, value: { ...reviewOf(directory), lenses: AUDITORS.map(({ id, name, optional }) => ({ id, name, optional: optional === true })) } }
         case 'review-save':
@@ -257,6 +272,7 @@ export function createEngine(): ForgeEngine {
           closePane(directory, text('key', 80))
           dropLead(directory, text('key', 80))
           announce(directory)
+          if (row.announce === true) push('freya:forge:event', { directory, event: { type: 'panes-changed', properties: {} } })
           return { ok: true, value: null }
         default:
           return { ok: false, error: 'Unknown Forge operation.' }

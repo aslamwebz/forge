@@ -15,6 +15,8 @@ await bundle({ ...shared, entryPoints: [here('./main.ts')], outfile: `${out}/mai
 // The engine on its own: in a utility process, or outliving the app (run by Electron as Node).
 await bundle({ ...shared, entryPoints: [here('../src/main/worker.ts')], outfile: `${out}/worker.cjs`, external: ['electron', '@lydell/node-pty'] })
 await bundle({ ...shared, entryPoints: [here('../src/main/daemon.ts')], outfile: `${out}/daemon.cjs`, external: ['electron', '@lydell/node-pty'] })
+// The command line, beside the engine it starts when none runs.
+await bundle({ ...shared, entryPoints: [here('../src/cli/forge.ts')], outfile: `${out}/forge.cjs`, banner: { js: '#!/usr/bin/env node' } })
 await bundle({ ...shared, entryPoints: [here('./preload.ts')], outfile: `${out}/preload.cjs`, external: ['electron'] })
 
 await page({
