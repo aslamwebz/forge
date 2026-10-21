@@ -3,6 +3,7 @@ import { AgentIcon } from './AgentIcon'
 import { bridge, call, STATUS_LABEL, topStatus, type Agent, type PaneSpec, type RunningItem, type Script, type Workspace, type Worktree } from './forgeApi'
 import { LookMenu } from './LookMenu'
 import { NewProject } from './NewProject'
+import { CommandBar, type Command } from './CommandBar'
 import { PaneGrid, useLayout, useSubLayout, type Layout, type SubLayout } from './PaneGrid'
 import { PreviewsTab } from './PreviewsTab'
 import { ReviewTab } from './ReviewTab'
@@ -73,6 +74,7 @@ export function ForgeWorkspace() {
   const [last, setLast] = useState<readonly { readonly kind: string; readonly title: string | null; readonly resume: string | null; readonly worktree?: string | null }[]>([])
   const [ownBranch, setOwnBranch] = useState(() => localStorage.getItem(OWN_BRANCH_KEY) === 'on')
   const [worktrees, setWorktrees] = useState<readonly Worktree[]>([])
+  const [commandOpen, setCommandOpen] = useState(false)
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'closed')
   const [error, setError] = useState<string | null>(null)
   const fail = useCallback((reason: unknown) => { setError(reason instanceof Error ? reason.message : String(reason)) }, [])
@@ -88,9 +90,16 @@ export function ForgeWorkspace() {
   useEffect(() => { localStorage.setItem(DOCK_KEY, dockOpen ? 'open' : 'closed') }, [dockOpen])
   useEffect(() => { localStorage.setItem(DOCK_HEIGHT_KEY, String(dockHeight)) }, [dockHeight])
 
-  // Ctrl+` shows and hides the terminal panel, as in an editor.
+  // Ctrl+` shows and hides the terminal panel, as in an editor; Ctrl+K opens the command bar;
+  // Ctrl+Shift+B switches own branches; Alt+1 to 4 choose the tab.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.ctrlKey && event.key === '`') { event.preventDefault(); setDockOpen(open => !open) } }
+    const onKey = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key === '`') { event.preventDefault(); setDockOpen(open => !open) }
+      else if (event.ctrlKey && !event.shiftKey && !event.altKey && key === 'k') { event.preventDefault(); setCommandOpen(open => !open) }
+      else if (event.ctrlKey && event.shiftKey && !event.altKey && key === 'b') { event.preventDefault(); setOwnBranch(on => !on) }
+      else if (event.altKey && !event.ctrlKey && !event.shiftKey && /^[1-4]$/u.test(event.key)) { event.preventDefault(); setTab(TABS[Number(event.key) - 1]!.id) }
+    }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
   }, [])
@@ -190,14 +199,14 @@ export function ForgeWorkspace() {
     } catch (reason) { fail(reason) }
   }
   /** Start an agent in the chosen workspace, in a new pane beside the others; or open one of its sessions again. */
-  const start = (kind: string, resume?: { readonly id: string; readonly title: string }, worktree?: string) => {
+  const start = (kind: string, resume?: { readonly id: string; readonly title: string }, worktree?: string | true) => {
     if (!current) { setError('Choose a workspace first.'); return }
     setError(null)
     setTab('harness')
     setPanes((list) => {
       const key = nextKey(kind, list)
       // A new agent works on its own branch when he chose that; a resumed one goes back to the branch it ran on.
-      const tree = worktree ?? (ownBranch && !resume ? key : undefined)
+      const tree = worktree === true ? key : worktree ?? (ownBranch && !resume ? key : undefined)
       return [...list, { key, kind, title: resume ? titled(label(kind), resume.title) : label(kind), ...(resume ? { resume: resume.id } : {}), ...(tree ? { worktree: tree } : {}) }]
     })
   }
@@ -287,6 +296,27 @@ export function ForgeWorkspace() {
   }
   // The workspace as last listed, so what runs in it stays current.
   const showing = creating || !current ? null : workspaces.find(item => item.id === current.id) ?? current
+
+  const commands: Command[] = [
+    ...(showing ? showing.items.map(item => ({ id: `pane:${item.key}`, group: 'Go to', label: `${item.title}${item.branch ? ` (${item.branch})` : ''}`, run: () => { if (inDock(item.kind)) choose(showing, { dockKey: item.key }); else focusRef.current(showing.directory, item.key) } })) : []),
+    ...workspaces.filter(item => item.id !== showing?.id).map(item => ({ id: `ws:${item.id}`, group: 'Workspace', label: item.name, run: () => { choose(item) } })),
+    ...(showing ? agents.filter(agent => agent.installed && agent.blocked === null).flatMap(agent => [
+      { id: `start:${agent.id}`, group: 'Start', label: agent.label, run: () => { start(agent.id, undefined, ownBranch ? true : undefined) } },
+      { id: `branch:${agent.id}`, group: 'Start', label: `${agent.label} on its own branch`, run: () => { start(agent.id, undefined, true) } },
+    ]) : []),
+    ...(showing ? [
+      { id: 'shell', group: 'Terminal', label: 'New terminal', run: () => { newShell() } },
+      { id: 'dock', group: 'Terminal', label: dockOpen ? 'Hide the terminal panel' : 'Show the terminal panel', keys: 'Ctrl+`', run: () => { setDockOpen(open => !open) } },
+      ...TABS.map((item, index) => ({ id: `tab:${item.id}`, group: 'Show', label: item.label, keys: `Alt+${String(index + 1)}`, run: () => { setTab(item.id) } })),
+      ...([['columns', 'Side by side'], ['rows', 'Stacked'], ['grid', 'Grid'], ['lead', 'Lead on one half']] as const).map(([item, name]) => ({ id: `layout:${item}`, group: 'Layout', label: name, run: () => { setZoomed(null); setLayout(item); setTab('harness') } })),
+      { id: 'own-branch', group: 'Agents', label: ownBranch ? 'New agents in the workspace itself' : 'New agents on their own branches', keys: 'Ctrl+Shift+B', run: () => { setOwnBranch(on => !on) } },
+      { id: 'sessions', group: 'Agents', label: 'Resume a session', run: () => { setTab('harness'); setSessionsOpen(true) } },
+      ...(last.length > 0 ? [{ id: 'restore', group: 'Agents', label: `Restore the ${String(last.length)} that ran here last time`, run: restore }] : []),
+    ] : []),
+    { id: 'new', group: 'Forge', label: 'New project', run: () => { setCreating(true) } },
+    { id: 'open', group: 'Forge', label: 'Open a folder', run: () => { void openFolder() } },
+    { id: 'restart', group: 'Forge', label: 'Restart the Forge', run: () => { void restartEngine() } },
+  ]
 
   return <>
     <div className="fg-forge" data-rail={showing && tab === 'harness' ? (railOpen ? 'open' : 'closed') : 'none'}>
@@ -430,6 +460,7 @@ export function ForgeWorkspace() {
         </div> : null}
       </aside> : null}
     </div>
+    {commandOpen ? <CommandBar commands={commands} onClose={() => { setCommandOpen(false) }} /> : null}
   </>
 }
 

@@ -67,6 +67,8 @@ export function TerminalPane({ directory, pane, title, status, flash = false, zo
       const key = event.key.toLowerCase()
       if (key === 'c' && term.hasSelection()) { void navigator.clipboard.writeText(term.getSelection()).catch(() => undefined); term.clearSelection(); return false }
       if (key === 'v') return false
+      // The Forge's own: the command bar.
+      if (key === 'k' && !event.shiftKey && !event.altKey) return false
       if (key === 'f') { event.preventDefault(); setSearching(true); return false }
       // Text size for every terminal, as in an editor.
       if (key === '=' || key === '+') { event.preventDefault(); setTerminalLook({ fontSize: terminalLook().fontSize + 1 }); return false }
