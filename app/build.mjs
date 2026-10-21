@@ -12,6 +12,9 @@ await rm(out, { recursive: true, force: true })
 const shared = { bundle: true, platform: 'node', target: 'node20', format: 'cjs', sourcemap: true, logLevel: 'info' }
 // node-pty carries a native part: it is loaded from node_modules, not bundled.
 await bundle({ ...shared, entryPoints: [here('./main.ts')], outfile: `${out}/main.cjs`, external: ['electron', '@lydell/node-pty'] })
+// The engine on its own: in a utility process, or outliving the app (run by Electron as Node).
+await bundle({ ...shared, entryPoints: [here('../src/main/worker.ts')], outfile: `${out}/worker.cjs`, external: ['electron', '@lydell/node-pty'] })
+await bundle({ ...shared, entryPoints: [here('../src/main/daemon.ts')], outfile: `${out}/daemon.cjs`, external: ['electron', '@lydell/node-pty'] })
 await bundle({ ...shared, entryPoints: [here('./preload.ts')], outfile: `${out}/preload.cjs`, external: ['electron'] })
 
 await page({

@@ -1,22 +1,24 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
-import { mountForge, shutdownForge } from '../src/main'
+import { mountForgeProcess } from '../src/main'
 
 /**
  * The Forge on its own: one window, the Forge in it. Its data lives in its own folder, apart from
- * any app that carries it. There is no security core here, so the lead's tools stay off.
+ * any app that carries it. There is no security core here, so the lead's tools stay off. Its engine
+ * outlives the window: closing the Forge leaves the agents working, and opening it shows them again.
  */
 
 app.setName('Forge')
 // FORGE_DATA_DIR gives a run a data folder of its own (a test, a second copy); otherwise the usual one.
 app.setPath('userData', process.env.FORGE_DATA_DIR || join(app.getPath('appData'), 'Forge'))
 let window: BrowserWindow | null = null
+let forge: { stop: () => Promise<void> } | null = null
 
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus() } })
 
 void app.whenReady().then(() => {
-  mountForge({ window: () => window, navigate: () => { window?.show(); window?.focus() } })
+  forge = mountForgeProcess({ window: () => window, navigate: () => { window?.show(); window?.focus() }, workerPath: join(__dirname, 'worker.cjs'), daemonPath: join(__dirname, 'daemon.cjs') })
   window = new BrowserWindow({
     width: 1500, height: 940, minWidth: 900, minHeight: 600, title: 'Forge', backgroundColor: '#1c1714',
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
@@ -30,4 +32,5 @@ void app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => { app.quit() })
-app.on('will-quit', () => { shutdownForge() })
+// Only lets go of the engine: what runs in it keeps running.
+app.on('will-quit', () => { void forge?.stop() })

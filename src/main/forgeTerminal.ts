@@ -311,6 +311,9 @@ export function closeWorkspacePanes(directory: string): void {
   for (const pane of [...panes.values()]) if (pane.directory === directory) closePane(directory, pane.key)
 }
 
+/** How many panes run, in every workspace. */
+export function paneCount(): number { return panes.size }
+
 /** Every pane, closed with the app; what ran is kept for him to restore next time. */
 export function closeTerminals(): void {
   remember()
