@@ -230,10 +230,11 @@ export function paneText(directory: string, key: string, lines: number): { reado
   const pane = find(directory, key)
   if (!pane) return null
   const buffer = pane.screen.buffer.active
-  const end = buffer.viewportY + pane.screen.rows
+  // The last lines with anything on them: a short output leaves the bottom of the screen blank.
+  let end = buffer.viewportY + pane.screen.rows
+  while (end > 0 && (buffer.getLine(end - 1)?.translateToString(true) ?? '').trim() === '') end -= 1
   const all: string[] = []
   for (let y = Math.max(0, end - lines); y < end; y += 1) all.push(buffer.getLine(y)?.translateToString(true) ?? '')
-  while (all.length > 0 && all[all.length - 1]!.trim() === '') all.pop()
   return { text: all.join('\n'), status: pane.status, kind: pane.kind }
 }
 
