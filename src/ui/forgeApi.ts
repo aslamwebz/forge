@@ -18,10 +18,12 @@ export async function call<T>(request: Record<string, unknown>): Promise<T> {
   return result.value as T
 }
 
-export interface PaneSpec { readonly key: string; readonly kind: string; readonly typeFirst?: string; /** A session of this tool to open again. */ readonly resume?: string; /** Started as its workspace's lead (with the Forge's tools). */ readonly lead?: boolean }
+export interface PaneSpec { readonly key: string; readonly kind: string; readonly typeFirst?: string; /** A session of this tool to open again. */ readonly resume?: string; /** Started as its workspace's lead (with the Forge's tools). */ readonly lead?: boolean; /** Works on its own branch: the name of its git worktree. */ readonly worktree?: string }
 /** What an agent is doing: waiting for him (blocked), working, done, or idle. */
 export type AgentStatus = 'blocked' | 'working' | 'done' | 'idle'
-export interface RunningItem extends PaneSpec { readonly title: string; /** The local address it serves, once it said so. */ readonly url?: string; readonly status?: AgentStatus; readonly sessionId?: string; readonly startedBy?: string }
+export interface RunningItem extends PaneSpec { readonly title: string; /** The local address it serves, once it said so. */ readonly url?: string; readonly status?: AgentStatus; readonly sessionId?: string; readonly startedBy?: string; /** Its own branch, when it works in a worktree. */ readonly branch?: string }
+/** An agent's own branch in a workspace: a git worktree the Forge made. */
+export interface Worktree { readonly key: string; readonly branch: string; readonly changed: number; readonly ahead: number; readonly running: boolean }
 /** The status that matters most among several: one waiting for him first. */
 export function topStatus(items: readonly { readonly status?: AgentStatus }[]): AgentStatus | null {
   for (const status of ['blocked', 'working', 'done', 'idle'] as const) if (items.some(item => item.status === status)) return status

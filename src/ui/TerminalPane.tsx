@@ -84,7 +84,7 @@ export function TerminalPane({ directory, pane, title, status, flash = false, zo
     })
     const attach = started.has(pane)
     started.add(pane)
-    void call<{ id: string | null; replay: string }>({ op: 'pane-open', directory, key: pane.key, kind: pane.kind, cols: term.cols, rows: term.rows, attach, ...(pane.resume ? { resume: pane.resume, title } : {}), ...(pane.lead ? { lead: true } : {}) }).then((opened) => {
+    void call<{ id: string | null; replay: string }>({ op: 'pane-open', directory, key: pane.key, kind: pane.kind, cols: term.cols, rows: term.rows, attach, ...(pane.resume ? { resume: pane.resume, title } : {}), ...(pane.lead ? { lead: true } : {}), ...(pane.worktree ? { worktree: pane.worktree } : {}) }).then((opened) => {
       if (!live) return
       if (opened.id === null) { setState('ended'); term.write('[Ended.]\r\n'); return }
       id = opened.id
@@ -117,10 +117,12 @@ export function TerminalPane({ directory, pane, title, status, flash = false, zo
     })
     return () => { live = false; restyle(); observer.disconnect(); typing.dispose(); off?.(); finder.current = null; terminal.current = null; term.dispose() }
   }, [directory, pane])
+  const branch = (pane as { readonly branch?: string }).branch ?? (pane.worktree ? `forge/${pane.worktree}` : null)
   return <div className="fg-pane" data-status={state === 'running' ? status : undefined} data-flash={flash || undefined} style={{ background }}>
     {bare ? null : <header className="fg-pane-head" draggable={onDragStart ? true : undefined} onDragStart={onDragStart} onDoubleClick={onZoom} title={onZoom ? 'Drag to move · double-click to zoom' : undefined}>
       {pane.lead ? <span className="fg-lead-chip" title="Leads the other agents here, through the security core">♛ Lead</span> : null}
       <span className="fg-pane-title">{title}</span>
+      {branch ? <span className="fg-branch-chip" title="Works in its own git worktree, on this branch">⑂ {branch}</span> : null}
       <span className="fg-status">{state === 'starting' ? 'Starting…' : state === 'ended' ? 'Ended' : status ? <span className="fg-status-chip" data-state={status}>{STATUS_LABEL[status]}</span> : ''}</span>
       {onMakeLead && !pane.lead ? <button type="button" className="fg-pane-close" aria-label={`Make ${title} the lead`} title="Make it the lead: it restarts in the same conversation with tools to command the other agents" onClick={onMakeLead}>♛</button> : null}
       {onZoom ? <button type="button" className="fg-pane-close" aria-label={zoomed ? `Show all panes` : `Zoom ${title}`} title={zoomed ? 'Show all panes' : 'Zoom'} onClick={onZoom}>{zoomed ? '⤡' : '⤢'}</button> : null}

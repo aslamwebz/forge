@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AgentIcon } from './AgentIcon'
-import { bridge, call, STATUS_LABEL, topStatus, type Agent, type PaneSpec, type RunningItem, type Script, type Workspace } from './forgeApi'
+import { bridge, call, STATUS_LABEL, topStatus, type Agent, type PaneSpec, type RunningItem, type Script, type Workspace, type Worktree } from './forgeApi'
 import { LookMenu } from './LookMenu'
 import { NewProject } from './NewProject'
 import { PaneGrid, useLayout, useSubLayout, type Layout, type SubLayout } from './PaneGrid'
@@ -28,6 +28,7 @@ const RAIL_KEY = 'freya.forge.agentsOpen'
 const DOCK_KEY = 'freya.forge.terminalOpen'
 const DOCK_HEIGHT_KEY = 'freya.forge.terminalHeight'
 const LAST_KEY = 'freya.forge.lastWorkspace'
+const OWN_BRANCH_KEY = 'freya.forge.ownBranch'
 const inDock = (kind: string) => kind === 'shell' || kind === 'script'
 
 /** The next free key for a kind of pane: shell-1, shell-2, ... */
@@ -69,7 +70,9 @@ export function ForgeWorkspace() {
   const [subLayout, setSubLayout] = useSubLayout()
   const [zoomed, setZoomed] = useState<string | null>(null)
   /** What ran in the shown workspace when the app last closed, offered to restore. */
-  const [last, setLast] = useState<readonly { readonly kind: string; readonly title: string | null; readonly resume: string | null }[]>([])
+  const [last, setLast] = useState<readonly { readonly kind: string; readonly title: string | null; readonly resume: string | null; readonly worktree?: string | null }[]>([])
+  const [ownBranch, setOwnBranch] = useState(() => localStorage.getItem(OWN_BRANCH_KEY) === 'on')
+  const [worktrees, setWorktrees] = useState<readonly Worktree[]>([])
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'closed')
   const [error, setError] = useState<string | null>(null)
   const fail = useCallback((reason: unknown) => { setError(reason instanceof Error ? reason.message : String(reason)) }, [])
@@ -81,6 +84,7 @@ export function ForgeWorkspace() {
   const loadAgents = useCallback(async () => { setAgents(await call<Agent[]>({ op: 'agents' })) }, [])
   const refreshAgents = useCallback(() => { void loadAgents().catch(() => undefined) }, [loadAgents])
   useEffect(() => { localStorage.setItem(RAIL_KEY, railOpen ? 'open' : 'closed') }, [railOpen])
+  useEffect(() => { localStorage.setItem(OWN_BRANCH_KEY, ownBranch ? 'on' : 'off') }, [ownBranch])
   useEffect(() => { localStorage.setItem(DOCK_KEY, dockOpen ? 'open' : 'closed') }, [dockOpen])
   useEffect(() => { localStorage.setItem(DOCK_HEIGHT_KEY, String(dockHeight)) }, [dockHeight])
 
@@ -186,11 +190,16 @@ export function ForgeWorkspace() {
     } catch (reason) { fail(reason) }
   }
   /** Start an agent in the chosen workspace, in a new pane beside the others; or open one of its sessions again. */
-  const start = (kind: string, resume?: { readonly id: string; readonly title: string }) => {
+  const start = (kind: string, resume?: { readonly id: string; readonly title: string }, worktree?: string) => {
     if (!current) { setError('Choose a workspace first.'); return }
     setError(null)
     setTab('harness')
-    setPanes(list => [...list, { key: nextKey(kind, list), kind, title: resume ? titled(label(kind), resume.title) : label(kind), ...(resume ? { resume: resume.id } : {}) }])
+    setPanes((list) => {
+      const key = nextKey(kind, list)
+      // A new agent works on its own branch when he chose that; a resumed one goes back to the branch it ran on.
+      const tree = worktree ?? (ownBranch && !resume ? key : undefined)
+      return [...list, { key, kind, title: resume ? titled(label(kind), resume.title) : label(kind), ...(resume ? { resume: resume.id } : {}), ...(tree ? { worktree: tree } : {}) }]
+    })
   }
   /** A Claude pane becomes the lead: it restarts in the same conversation, now with the Forge's tools. */
   const makeLead = async (pane: RunningItem) => {
@@ -255,11 +264,21 @@ export function ForgeWorkspace() {
   useEffect(() => {
     setLast([])
     if (!shownDirectory) return
-    void call<{ kind: string; title: string | null; resume: string | null }[]>({ op: 'last-panes', directory: shownDirectory }).then(setLast).catch(() => undefined)
+    void call<{ kind: string; title: string | null; resume: string | null; worktree: string | null }[]>({ op: 'last-panes', directory: shownDirectory }).then(setLast).catch(() => undefined)
   }, [shownDirectory])
+  // The agents' own branches here, read again whenever what runs changes.
+  const loadWorktrees = useCallback(() => {
+    if (!shownDirectory) { setWorktrees([]); return }
+    void call<Worktree[]>({ op: 'worktrees', directory: shownDirectory }).then(setWorktrees).catch(() => { setWorktrees([]) })
+  }, [shownDirectory])
+  useEffect(() => { loadWorktrees() }, [loadWorktrees, panes])
+  const removeTree = async (tree: Worktree) => {
+    if (!shownDirectory || !window.confirm(`Remove the worktree of ${tree.branch}? Its branch and commits stay.`)) return
+    try { await call({ op: 'worktree-remove', directory: shownDirectory, name: tree.key }); loadWorktrees() } catch (reason) { fail(reason) }
+  }
   /** Bring back what ran here last time, each agent in its own session. */
   const restore = () => {
-    for (const item of last) start(item.kind, item.resume ? { id: item.resume, title: item.title ?? 'last session' } : undefined)
+    for (const item of last) start(item.kind, item.resume ? { id: item.resume, title: item.title ?? 'last session' } : undefined, item.worktree ?? undefined)
     forget()
   }
   const forget = () => {
@@ -390,6 +409,9 @@ export function ForgeWorkspace() {
         <button type="button" className="fg-agent fg-agent-sessions" data-ready aria-pressed={sessionsOpen} title="Sessions that ran here, to resume" onClick={() => { setSessionsOpen(open => !open) }}>
           <span className="fg-mark" aria-hidden="true">⟲</span><span className="fg-agent-name">Resume a session</span>
         </button>
+        <button type="button" className="fg-agent fg-own-branch" data-ready aria-pressed={ownBranch} title={ownBranch ? 'New agents each work in a git worktree of their own, on the branch forge/<pane>. Click to start them in the workspace itself.' : 'New agents work in the workspace itself. Click to give each its own branch (a git worktree), so they never edit the same files.'} onClick={() => { setOwnBranch(on => !on) }}>
+          <span className="fg-mark" aria-hidden="true">⑂</span><span className="fg-agent-name">{ownBranch ? 'Own branch: on' : 'Own branch: off'}</span>
+        </button>
         {agents.map((agent) => {
           const ready = agent.installed && agent.blocked === null
           const title = !agent.installed ? `Not installed. Opens a terminal with: ${agent.install}` : agent.blocked ?? `Start ${agent.label} here`
@@ -399,6 +421,13 @@ export function ForgeWorkspace() {
             <span className="fg-agent-name">{agent.installed ? agent.label : `Install ${agent.label}`}</span>
           </button>
         })}
+        {worktrees.length > 0 ? <div className="fg-trees" aria-label="Own branches">
+          {worktrees.map(tree => <div key={tree.key} className="fg-tree" title={`${tree.branch}: ${String(tree.ahead)} commit${tree.ahead === 1 ? '' : 's'} ahead, ${String(tree.changed)} uncommitted`}>
+            <span className="fg-mark" aria-hidden="true">⑂</span>
+            <span className="fg-agent-name">{tree.branch}<small>{tree.ahead > 0 ? ` ↑${String(tree.ahead)}` : ''}{tree.changed > 0 ? ` ●${String(tree.changed)}` : ''}</small></span>
+            {tree.running ? null : <button type="button" className="fg-pane-close" aria-label={`Remove the worktree of ${tree.branch}`} title="Remove the worktree (the branch stays)" onClick={() => { void removeTree(tree) }}>×</button>}
+          </div>)}
+        </div> : null}
       </aside> : null}
     </div>
   </>

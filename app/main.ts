@@ -8,7 +8,8 @@ import { mountForge, shutdownForge } from '../src/main'
  */
 
 app.setName('Forge')
-app.setPath('userData', join(app.getPath('appData'), 'Forge'))
+// FORGE_DATA_DIR gives a run a data folder of its own (a test, a second copy); otherwise the usual one.
+app.setPath('userData', process.env.FORGE_DATA_DIR || join(app.getPath('appData'), 'Forge'))
 let window: BrowserWindow | null = null
 
 if (!app.requestSingleInstanceLock()) app.quit()
