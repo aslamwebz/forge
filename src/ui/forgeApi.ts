@@ -4,6 +4,8 @@ export interface ForgeBridge {
   onForgeEvent?(handler: (update: { directory: string; event: { type: string; properties: unknown } }) => void): () => void
   onForgeState?(handler: (update: { directory: string; running: number }) => void): () => void
   onForgeTerminal?(handler: (update: { id: string; data?: string; exit?: number }) => void): () => void
+  /** Glass for the window itself (the system's own material), where the app can; whether it did. */
+  setWindowGlass?(on: boolean): Promise<boolean>
 }
 let current: ForgeBridge | null = null
 export function setForgeBridge(value: ForgeBridge | null): void { current = value }

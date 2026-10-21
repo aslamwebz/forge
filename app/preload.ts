@@ -9,6 +9,7 @@ const listen = <T>(channel: string, accept: (value: unknown) => T | null) => (ha
 
 contextBridge.exposeInMainWorld('forgeBridge', {
   forge: (request: Record<string, unknown>) => ipcRenderer.invoke('freya:forge', request),
+  setWindowGlass: (on: boolean) => ipcRenderer.invoke('forge:window-glass', on === true),
   onForgeEvent: listen('freya:forge:event', (value) => {
     const row = (value ?? {}) as { directory?: unknown; event?: { type?: unknown; properties?: unknown } }
     return typeof row.directory === 'string' && typeof row.event?.type === 'string' ? { directory: row.directory, event: { type: row.event.type, properties: row.event.properties } } : null

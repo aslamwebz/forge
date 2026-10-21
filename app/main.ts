@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import { release } from 'node:os'
 import { join } from 'node:path'
 import { mountForgeProcess } from '../src/main'
 
@@ -28,6 +29,15 @@ void app.whenReady().then(() => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => { event.preventDefault() })
   window.on('closed', () => { window = null })
+  // Glass: the system's acrylic behind the page, on Windows 11 (build 22621 and later); elsewhere the page draws its own.
+  ipcMain.handle('forge:window-glass', (event, on: unknown) => {
+    if (!window || event.sender !== window.webContents) return false
+    const native = process.platform === 'win32' && Number(release().split('.')[2] ?? 0) >= 22621
+    if (!native) return false
+    window.setBackgroundMaterial(on === true ? 'acrylic' : 'none')
+    window.setBackgroundColor(on === true ? '#00000000' : '#1c1714')
+    return on === true
+  })
   void window.loadFile(join(__dirname, 'renderer', 'index.html'))
 })
 

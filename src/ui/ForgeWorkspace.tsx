@@ -4,6 +4,7 @@ import { bridge, call, STATUS_LABEL, topStatus, type Agent, type PaneSpec, type 
 import { LookMenu } from './LookMenu'
 import { NewProject } from './NewProject'
 import { CommandBar, type Command } from './CommandBar'
+import { accentOf, useAppearance } from './appearance'
 import { PaneGrid, useLayout, useSubLayout, type Layout, type SubLayout } from './PaneGrid'
 import { PreviewsTab } from './PreviewsTab'
 import { ReviewTab } from './ReviewTab'
@@ -75,6 +76,17 @@ export function ForgeWorkspace() {
   const [ownBranch, setOwnBranch] = useState(() => localStorage.getItem(OWN_BRANCH_KEY) === 'on')
   const [worktrees, setWorktrees] = useState<readonly Worktree[]>([])
   const [commandOpen, setCommandOpen] = useState(false)
+  const look = useAppearance()
+  // Glass: the window's own material too, where the app can give it; the page then lets it show through.
+  useEffect(() => {
+    let live = true
+    const glass = look.style === 'glass'
+    void (bridge()?.setWindowGlass?.(glass) ?? Promise.resolve(false)).then((native) => {
+      if (live) document.documentElement.toggleAttribute('data-forge-native-glass', glass && native)
+    }).catch(() => undefined)
+    return () => { live = false }
+  }, [look.style])
+  const accent = accentOf(look)
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'closed')
   const [error, setError] = useState<string | null>(null)
   const fail = useCallback((reason: unknown) => { setError(reason instanceof Error ? reason.message : String(reason)) }, [])
@@ -319,7 +331,7 @@ export function ForgeWorkspace() {
   ]
 
   return <>
-    <div className="fg-forge" data-rail={showing && tab === 'harness' ? (railOpen ? 'open' : 'closed') : 'none'}>
+    <div className="fg-forge" data-style={look.style} style={accent ? { ['--f-accent' as string]: accent } : undefined} data-rail={showing && tab === 'harness' ? (railOpen ? 'open' : 'closed') : 'none'}>
       <aside className="fg-apps" aria-label="Workspaces">
         <div className="fg-apps-head">
           <p className="fg-label">Workspaces</p>
@@ -459,8 +471,8 @@ export function ForgeWorkspace() {
           </div>)}
         </div> : null}
       </aside> : null}
+      {commandOpen ? <CommandBar commands={commands} onClose={() => { setCommandOpen(false) }} /> : null}
     </div>
-    {commandOpen ? <CommandBar commands={commands} onClose={() => { setCommandOpen(false) }} /> : null}
   </>
 }
 

@@ -12,3 +12,5 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--f-bg); color: var(--f-ink); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
 .forge-app { height: 100vh; display: flex; flex-direction: column; }
 .forge-app > .fg-forge { flex: 1; min-height: 0; }
+/* Glass with the window's own material (Windows 11): the page lets the desktop show through, softly. */
+html[data-forge-native-glass] body { background: color-mix(in srgb, var(--f-bg) 45%, transparent); }

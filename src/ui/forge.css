@@ -281,3 +281,31 @@
 .fg-command-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fg-command kbd { padding: 1px 6px; font: 11px ui-monospace, monospace; color: var(--f-muted); border: 1px solid var(--f-line); border-radius: 5px; }
 .fg-command-none { color: var(--f-muted); cursor: default; }
+
+/* The look menu's Forge choices. */
+.fg-look-style button { flex: 1; }
+.fg-forge .fg-look-style button[aria-checked='true'] { border-color: var(--f-accent); color: var(--f-accent); }
+.fg-look-accents { gap: 6px; }
+.fg-forge .fg-look-accents button { width: 26px; height: 26px; padding: 3px; border-radius: 999px; border-color: transparent; }
+.fg-forge .fg-look-accents button[aria-checked='true'] { border-color: var(--f-ink, #f3e9dc); }
+.fg-look-accents i { display: block; width: 100%; height: 100%; border-radius: 999px; }
+
+/* Glass: panels let a soft light through, blurred; the terminals stay solid to read. */
+.fg-forge[data-style='glass'] {
+  --fg-glass: color-mix(in srgb, var(--f-bg, #1c1714) 58%, transparent);
+  --fg-glass-strong: color-mix(in srgb, var(--f-bg, #1c1714) 78%, transparent);
+  background:
+    radial-gradient(900px 600px at 12% -10%, color-mix(in srgb, var(--f-accent) 22%, transparent), transparent 70%),
+    radial-gradient(800px 700px at 110% 110%, color-mix(in srgb, var(--f-accent) 14%, transparent), transparent 70%);
+}
+.fg-forge[data-style='glass'] .fg-apps,
+.fg-forge[data-style='glass'] .fg-agents { background: var(--fg-glass); backdrop-filter: blur(22px) saturate(1.3); }
+.fg-forge[data-style='glass'] .fg-pane,
+.fg-forge[data-style='glass'] .fg-dock { border-radius: 10px; overflow: hidden; box-shadow: 0 8px 30px rgba(0, 0, 0, .25), inset 0 0 0 1px color-mix(in srgb, var(--f-ink, #fff) 8%, transparent); }
+.fg-forge[data-style='glass'] .fg-pane-head,
+.fg-forge[data-style='glass'] .fg-main-head,
+.fg-forge[data-style='glass'] .fg-dock-tabs { background: var(--fg-glass-strong); backdrop-filter: blur(16px); }
+.fg-forge[data-style='glass'] .fg-look-menu,
+.fg-forge[data-style='glass'] .fg-sessions,
+.fg-forge[data-style='glass'] .fg-command { background: var(--fg-glass-strong); backdrop-filter: blur(28px) saturate(1.4); }
+.fg-forge[data-style='glass'] .fg-command-backdrop { background: rgba(0, 0, 0, .2); }
